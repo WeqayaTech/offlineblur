@@ -1,0 +1,17 @@
+# OfflineBlur v2 (transformer pipeline). torch/torchvision come with the RunPod PyTorch image (Hopper/Ampere).
+numpy
+opencv-python-headless
+pillow
+scipy
+pyyaml
+tqdm
+matplotlib
+tensorboard
+transformers>=4.45,<4.57   # 4.57+ requires torch>=2.5; the tracker op is compiled against the image torch (2.4.1)
+timm>=1.0
+accelerate
+huggingface_hub
+gdown
+einops
+pycocotools
+ultralytics>=8.3.150      # only for MOTRv2 proposals (--tracker motrv2)

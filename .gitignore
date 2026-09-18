@@ -15,5 +15,4 @@ __pycache__/
 # owner-supplied source clips (copyright): keep out of the repo
 ali-dawah-*.mp4
 
-# v2 experimental pipeline — untested, kept out of the v1 release repo (owner to decide)
-v2/
+v2/configs/

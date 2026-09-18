@@ -1,3 +1,11 @@
+# OfflineBlur
+
+Two pipelines live here. **v1** (this file, folder `offlineblur/`) is the production blur pipeline.
+**v2** (folder [`v2/`](v2/README.md), design report in [`v2/REPORT.md`](v2/REPORT.md)) is the transformer-driven
+spatio-temporal pipeline: end-to-end track-query tracking (MeMOTR / MOTRv2), a frozen 1.1 B-parameter ViT-giant
+backbone shared with a cross-attention demographic head, and Bayesian temporal pooling of age and gender per track.
+v2 outputs tracks + stable per-person profiles; it does not render the blur yet (that is the v1 stage 5 renderer).
+
 # OfflineBlur v1
 
 Offline video pipeline that blurs every adult woman in a recording at pixel level, for video
