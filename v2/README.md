@@ -26,6 +26,7 @@ Bayesian temporal pooling). Runs on a RunPod H100/A100 pod; nothing runs locally
                                                 │  identities.json
                                                 ▼
                                     render.py → debug video, MOT text with identity ids, summary
+                                    blur.py   → blurred video (YOLO11x-seg mask per target box), matte, RLE masks
 ```
 
 ## What is real and what is substituted (read this first)
@@ -79,7 +80,10 @@ head training 2.3 steps/s at batch 48 (GPU 95 %).
 - `attrs.jsonl` — one row per frame × track: `p_female, age_mean, age_std, quality, entropy, size_px, occ, sharp`.
 - `identities.json` — per identity: `gender, p_female, gender_ci95, age_mean, age_std, class (Woman/Man/child), locked, evidence, n_obs, tracks, first_f, last_f, span_s, best_frame`.
 - `render/<clip>_debug.mp4` — every box with identity id, gender + probability, age ± std, `L` = locked, `q` = that frame's quality.
-- `render/<clip>_identities_mot.txt` — MOT text keyed by identity id (for the v1 blur renderer or an editor).
+- `render/<clip>_identities_mot.txt` — MOT text keyed by identity id.
+- `render/<clip>_blurred.mp4`, `render/<clip>_matte.mp4`, `render/masks_rle.jsonl`, `render/blur_summary.json` — the deliverable (stage `blur.py`): identities with P(female) ≥ 0.6 or locked female, never children/unknown; per-person instance mask from YOLO11x-seg matched to the track box, clipped to it, dilated, feathered, pixelated per person. `BLUR_ARGS="--min-p 0.5"` also blurs the 0.5–0.6 review band; `--locked-only` is the strictest setting.
+- `review_sheet.jpg` (`stp/sheet.py`) — every identity at its best frame with id, gender, P(female), age; the 0.5–0.6 band is what to review.
+- `reports/v2_report.html` — the engineering report (architecture, accuracy, findings).
 - `memotr.log` / `motrv2.log`, `tracks_meta.json`, `attrs_meta.json`, `render/summary.json`.
 
 ## Knobs
@@ -91,6 +95,17 @@ head training 2.3 steps/s at batch 48 (GPU 95 %).
 - Pooling gates (`AGG_ARGS`): `--size-lo/--size-hi` (px), `--occ-lo/--occ-hi`, `--sharp-lo/--sharp-hi`, `--sharp-thresh --sharp-boost` (clear-look overwrite), `--lock-n --lock-p` (lock), `--post-lock-damp`.
 - Identity relink across tracker id breaks: `RELINK=0.92` (cosine of quality-weighted ROI embeddings; off by default — measure on your footage first, as v1 showed body embeddings of strangers can score high in night crowds).
 - Detection / track thresholds: `TRACK_ARGS="--det-thresh 0.4 --track-thresh 0.4"`.
+
+## Findings on the trial clip (2026-09-18)
+
+- Head validation (face datasets): gender 97.0 %, age MAE 4.43 y. On the clip: reporter and interviewee locked
+  correctly for all 12 s; 0 false blurs at P ≥ 0.6; 4–5 escapes, all women seen mostly from behind (P 0.3–0.55).
+  Cause: the training data is faces; body-only views are out of domain. Next: pedestrian-attribute data
+  (PA-100K / PETA) or distilled Qwen labels from the v1 corpus, then retrain (~2 h).
+- The pooled ROI embedding is an attribute feature, not an identity feature (cosine 0.96 between different
+  people), so `--relink-sim` must stay off until a real re-id embedding is added.
+- The duplicate-query rule may only suppress a blur, never create one (a coverage-only rule absorbed people
+  walking behind the interviewee and would have blurred a man).
 
 ## Backbone swap (the blueprint's step 3) — not run by default
 

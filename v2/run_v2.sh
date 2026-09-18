@@ -40,3 +40,7 @@ else echo "[aggregate] done already"; fi
 
 python3 "$CODE/render.py" --out "$O" --video "$V" 2>&1 | tee "$O/render.log"
 echo "=== $STEM done ($(date +%T)). identities: $O/identities.json  debug video: $O/render/${STEM}_debug.mp4"
+if [ ! -f "$O/render/blur_summary.json" ]; then
+  python3 "$CODE/blur.py" --out "$O" --video "$V" --viewer "${VIEWER:-male}" --seg-weights "$W/yolo11x-seg.pt" $BLUR_ARGS 2>&1 | tee "$O/blur.log"
+else echo "[blur] done already"; fi
+echo "=== blurred: $O/render/${STEM}_blurred.mp4"

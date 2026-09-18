@@ -54,6 +54,7 @@ cd "$V2_WEIGHTS"
 python3 - <<'PY'
 from ultralytics import YOLO
 YOLO("yolo11x.pt")   # proposal detector for --tracker motrv2
+YOLO("yolo11x-seg.pt")   # instance masks for the blur renderer (blur.py)
 PY
 
 echo "== giant backbone (cached in HF_HOME)"

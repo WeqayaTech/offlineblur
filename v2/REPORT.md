@@ -146,10 +146,20 @@ TRACKER=motrv2 bash v2/run_v2.sh /root/offlineblur/videos/clip.mp4
 Outputs per clip: `tracks.jsonl`, `attrs.jsonl`, `identities.json`, `render/<clip>_debug.mp4`,
 `render/<clip>_identities_mot.txt`, `render/summary.json` (see `v2/README.md`).
 
+## 5b. Blur deliverable and clip findings (added 2026-09-18)
+
+`stp/blur.py` renders the blurred video: YOLO11x-seg instance mask matched to each target box, clipped to the
+box, dilated, feathered, pixelated per person. Default target: P(female) ≥ 0.6 or locked female; 0.5–0.6 is a
+review band (`review_sheet.jpg`). On the trial clip: 3 identities blurred (interviewee + 2 background women),
+0 false blurs, 4–5 escapes — women seen from behind scored 0.3–0.55 because the head's training data is faces
+only. v1 on the same clip: 12 women blurred, 0 false blurs, 1 escape. Pooled ROI embeddings turned out to be
+attribute features (cosine 0.96 between strangers), so identity relinking stays off. The full HTML report with
+frames is `v2/reports/v2_report.html`.
+
 ## 6. Next steps
 
-1. Feed `identities.json` + tracks into the v1 stage-5 renderer (per-identity masks via SAM 2 box
-   prompts, or box blur) so v2 produces the blurred deliverable.
+1. Retrain the head with body-level labels (PA-100K / PETA pedestrian attributes, or Qwen-distilled labels
+   from the v1 corpus) so back views stop escaping; this is the single biggest gap versus v1.
 2. Calibrate the pooling gates and the relink threshold on the six-clip test corpus from `reports/`.
 3. Age: add IMDB-WIKI-style exact-age data or re-weight FairFace groups to fix the compression toward 30.
 4. Backbone swap (giant backbone inside MeMOTR) only if tracker misses, not the head, turn out to be the

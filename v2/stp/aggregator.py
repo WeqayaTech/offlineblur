@@ -201,6 +201,8 @@ def main():
     ap.add_argument("--post-lock-damp", type=float, default=0.2)
     ap.add_argument("--relink-sim", type=float, default=0.0, help="cosine threshold for merging broken track ids (0 = off)")
     ap.add_argument("--relink-gap-s", type=float, default=10.0)
+    ap.add_argument("--dup-cover", type=float, default=0.9, help="identity whose boxes lie this much inside one *locked* identity's boxes (mean over its frames, host with >= 5x its evidence) is a duplicate track query: it inherits the host's class (0 = off)")
+    ap.add_argument("--min-evidence", type=float, default=1.0, help="below this evidence the identity is 'unknown' (class None, not blurred)")
     a = ap.parse_args()
 
     out = Path(a.out)
@@ -208,10 +210,11 @@ def main():
     per_track = defaultdict(list)
     for o in iter_jsonl(out / "attrs.jsonl"):
         per_track[o["tid"]].append(o)
-    span = {}
+    span, boxes_f = {}, defaultdict(list)
     for r in iter_jsonl(out / "tracks.jsonl"):
         s = span.get(r["tid"])
         span[r["tid"]] = [r["f"], r["f"]] if s is None else [min(s[0], r["f"]), max(s[1], r["f"])]
+        boxes_f[r["f"]].append((r["tid"], r["box"]))
 
     if a.relink_sim > 0 and (out / "track_feats.npz").exists():
         feats = dict(np.load(out / "track_feats.npz"))
@@ -235,6 +238,41 @@ def main():
         d["first_f"], d["last_f"] = min(span[t][0] for t in members), max(span[t][1] for t in members)
         d["span_s"] = round((d["last_f"] - d["first_f"] + 1) / fps, 2)
         identities[str(k)] = d
+    # duplicate rule: a track query that rides inside another person's box for most of its life is a fragment of that
+    # person (MOTR trackers sometimes spawn a second query on a large foreground person); it takes the host's class
+    if a.dup_cover > 0:
+        from common import box_coverage
+        cover = defaultdict(lambda: defaultdict(float))
+        nfr = defaultdict(int)
+        for f, lst in boxes_f.items():
+            for tid, b in lst:
+                k = t2i[str(tid)]
+                nfr[k] += 1
+                for tid2, b2 in lst:
+                    k2 = t2i[str(tid2)]
+                    if k2 != k:
+                        cover[k][k2] = max(cover[k][k2], 0) + box_coverage(b, b2)
+        n_dup = 0
+        for k, d in identities.items():
+            k = int(k)
+            if not cover[k]:
+                continue
+            host, c = max(cover[k].items(), key=lambda kv: kv[1])
+            c /= max(1, nfr[k])
+            hd = identities[str(host)]
+            if c >= a.dup_cover and hd["locked"] and hd["evidence"] >= 5 * max(1.0, d["evidence"]):
+                # the rule may only ever SUPPRESS a blur, never create one: a fragment of a locked man is a man; a track
+                # riding inside a locked woman's box is either her (her mask already covers it) or someone behind her → unknown
+                if hd["gender"] == "male":
+                    d.update({"duplicate_of": host, "class": hd["class"], "gender": hd["gender"], "p_female": hd["p_female"],
+                              "gender_ci95": hd["gender_ci95"], "locked": hd["locked"], "dup_cover": round(c, 2)})
+                else:
+                    d.update({"duplicate_of": host, "class": None, "dup_cover": round(c, 2)})
+                n_dup += 1
+        print(f"[aggregate] duplicate rule: {n_dup} identities inherit their host's class")
+    for d in identities.values():
+        if d["evidence"] < a.min_evidence and "duplicate_of" not in d:
+            d["class"] = None  # unknown: too little usable evidence to act on
     write_json(out / "identities.json", identities)
     write_json(out / "track_to_identity.json", t2i)
     n_lock = sum(1 for d in identities.values() if d["locked"])
