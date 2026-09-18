@@ -156,6 +156,32 @@ only. v1 on the same clip: 12 women blurred, 0 false blurs, 1 escape. Pooled ROI
 attribute features (cosine 0.96 between strangers), so identity relinking stays off. The full HTML report with
 frames is `v2/reports/v2_report.html`.
 
+## 5c. V3 — zero-shot VLM judge, no training (added 2026-09-18)
+
+The trained head's weakness (faces only → back-view women escape) is a data gap, not an architecture gap.
+V3 keeps every phase except the demographic branch, which becomes a zero-shot Qwen2.5-VL-7B judge
+(`stp/judge_vlm.py`): per track, K crops spread over its life are each labelled woman/man/child + face
+visible + view + confidence, mapped into the same `attrs.jsonl` schema, and pooled by the same Bayesian
+aggregator. No training, no `demo_head.pt`.
+
+Trial clip, MOTRv2 tracks, K=14:
+
+| pipeline | phase-3 model | women blurred | escapes | note |
+|---|---|---|---|---|
+| v2 | trained cross-attention head | 3 | 4–5 back-view women | faces-only training domain |
+| **v3** | **Qwen2.5-VL-7B zero-shot** | **11** | back-view escapes closed | overconfident on occluded fragments |
+| v1 | Qwen per-crop vote (older tracker) | 12 | 1 | reference |
+
+V3 catches the grey-coat and glasses women V2 missed. Its cost is over-aggression on ambiguous/occluded
+fragments: the VLM answers with high confidence (0.9+) even on partial crops, so a few thin-evidence
+identities (e.g. a couple embracing, a red-and-checkered fragment near the reporter) are blurred on wide
+confidence intervals. Tune with `K` (more crops = steadier), `BLUR_ARGS="--min-p 0.65"` (stricter), or
+`--locked-only`. Speed: ~0.8 crops/s on the A100, ~12 min for the clip.
+
+Recommendation: V3 for street/crowd footage where people are often seen from behind; the trained head for
+face-forward footage where it is faster. The two can also be combined as a two-vote ensemble (both write
+`attrs.jsonl`; concatenate before the aggregator).
+
 ## 6. Next steps
 
 1. Retrain the head with body-level labels (PA-100K / PETA pedestrian attributes, or Qwen-distilled labels

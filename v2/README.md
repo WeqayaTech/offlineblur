@@ -29,6 +29,24 @@ Bayesian temporal pooling). Runs on a RunPod H100/A100 pod; nothing runs locally
                                     blur.py   → blurred video (YOLO11x-seg mask per target box), matte, RLE masks
 ```
 
+## V3 — the no-training variant (recommended for street footage)
+
+`run_v3.sh` is the same pipeline with **one change**: phase 3 is a zero-shot vision-language judge
+(`stp/judge_vlm.py`, Qwen2.5-VL-7B) instead of the trained cross-attention head. No `demo_head.pt`, no
+training. Per track it judges K crops spread over the track's life; each crop becomes one `attrs.jsonl`
+observation in the same schema, so the aggregator, blur renderer, sheet and report run unchanged.
+
+Why: the trained head was fine-tuned on face datasets, so a woman seen from behind scored ~0.5 and
+escaped the blur. A general VLM has seen whole people in every pose, so it reads back views, clothing and
+hair. On the trial clip V3 blurred 11 women (vs 3 for the trained head) and closed the back-view escapes.
+Cost: ~0.8 crops/s on an A100, ~12 min for a 12 s clip at K=14 (the trained head is faster: use it when
+faces are usually visible, V3 when they are not).
+
+```bash
+bash v2/run_v3.sh /root/offlineblur/videos/clip.mp4     # tracks → VLM judge → identities → blurred video
+# K=20 judges more crops per track (steadier, slower); BLUR_ARGS="--min-p 0.6" is the default threshold
+```
+
 ## What is real and what is substituted (read this first)
 
 The blueprint names components that have no public weights. This package uses the closest
