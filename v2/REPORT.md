@@ -105,14 +105,23 @@ Trackers, 300 frames:
 | MeMOTR DanceTrack ckpt | 17 | 2208 | under-detects on a street crowd |
 | **MOTRv2 + YOLO11x proposals** | 41 | 2527 | cleanest: no duplicates, catches the far-left people → new default |
 
-Demographic head, validation on held-out 5 % of the training mix after epoch 1 of 4:
-gender accuracy 0.968 (8069 faces), age MAE 5.78 years (1180 exact-age faces). Full training runs
-4 epochs at 2.3 steps/s on the A100 (~95 min).
+Demographic head, validation on a held-out 5 % of the training mix (8069 gender-labelled, 1180
+exact-age faces), 4 epochs at 2.3 steps/s on the A100 (108 min total):
 
-Pipeline on the clip with the epoch-1 head (MOTRv2 tracks): 41 identities, 10 female / 31 male,
-6 locked. Reporter locked male P(f)=0.02, interviewee locked female P(f)=0.92, both across the whole
-12 s as one id each. Known weakness at this checkpoint: ages compress toward 30 (an older man comes
-out at 41 ± 3); more epochs and exact-age data reduce this.
+| epoch | gender accuracy | age MAE (years) |
+|---|---|---|
+| 1 | 0.968 | 5.78 |
+| 2 | 0.968 | 4.74 |
+| 3 | 0.969 | 4.47 |
+| 4 (final) | **0.970** | **4.43** |
+
+Pipeline on the clip with the final head (MOTRv2 tracks, every frame scored): 41 identities,
+11 female / 30 male, 7 locked. Reporter locked male P(f)=0.01 (CI 0.00–0.02), interviewee locked
+female P(f)=0.94 (CI 0.90–0.99), both as one id across the whole 12 s. People seen only from behind
+stay near 0.5 with a wide interval instead of locking wrongly (identity 16: 0.52, CI 0.29–0.75).
+Known weakness: ages compress toward the mid-30s (an older man comes out at 43 ± 3); exact-age data
+for older faces would fix this. The trained head is `demo_head.pt` (55 MB; a copy is kept outside the
+repo in `v2/weights/`).
 
 Speeds (A100 80 GB PCIe): frames → jpg 300 frames in a few seconds; MeMOTR ~2 fps; MOTRv2 ~2 fps plus
 proposals; demographic branch at stride 8 ~1.1 fps on a 16-person frame (every frame scored);
