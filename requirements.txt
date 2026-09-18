@@ -1,0 +1,17 @@
+# OfflineBlur v1 — install on the pod with: pip install -r requirements.txt
+# (torch/torchvision come with the RunPod PyTorch image; Hopper/Ampere GPUs only — Blackwell needs a cu128 torch)
+cython
+numpy
+opencv-python-headless
+pillow
+scipy
+pycocotools
+lap
+ultralytics>=8.3.150
+transformers>=4.57
+accelerate
+huggingface_hub
+qwen-vl-utils
+insightface
+boxmot
+# onnxruntime-gpu is installed by pod_setup.sh (needs the CUDA 12 build: ==1.22.0)
