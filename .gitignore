@@ -17,3 +17,7 @@ ali-dawah-*.mp4
 
 v2/configs/
 v2/out_backup/
+tracking/out/
+tracking/videos/
+tracking/weights/
+tracking/MOTIP/
