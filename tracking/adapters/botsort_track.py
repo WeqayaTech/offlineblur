@@ -22,9 +22,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from common import frame_path, read_json, write_json
 
 
-def make_tracker(reid_weights, device, half):
+def make_tracker(reid_weights, device, half, new_track_thresh=0.25, track_high_thresh=0.25):
     import boxmot
-    kw = dict(reid_weights=Path(reid_weights), device=device, half=half)
+    # boxmot's BotSort gates track BIRTH separately from the detector: its defaults
+    # (new_track_thresh=0.6, track_high_thresh=0.5) are well above the conf we feed the detector, so a
+    # real, visible detection at e.g. 0.3 confidence gets silently dropped — never becomes a track — even
+    # though we already lowered YOLO's own threshold to catch it. Align these with `conf` so a detection
+    # that passed the detector can actually be tracked.
+    kw = dict(reid_weights=Path(reid_weights), device=device, half=half,
+              new_track_thresh=new_track_thresh, track_high_thresh=track_high_thresh)
     for name in ("BotSort", "BoTSORT", "BoTSort"):
         cls = getattr(boxmot, name, None)
         if cls is not None:
@@ -35,14 +41,15 @@ def make_tracker(reid_weights, device, half):
     raise SystemExit("boxmot has no BotSort/BoTSORT class; check the boxmot version")
 
 
-def run(frames_meta, out_dir, yolo="yolo11x.pt", reid="clip_market1501.pt", imgsz=1280, conf=0.25, gpu="0", half=True):
+def run(frames_meta, out_dir, yolo="yolo11x.pt", reid="clip_market1501.pt", imgsz=1280, conf=0.25, gpu="0", half=True,
+        new_track_thresh=0.25, track_high_thresh=0.25):
     out_dir = Path(out_dir)
     img_dir, W, H = frames_meta["img_dir"], frames_meta["width"], frames_meta["height"]
     n_frames = frames_meta["n_frames"]
     device = f"cuda:{gpu}"
     from ultralytics import YOLO
     det = YOLO(str(yolo))
-    tracker = make_tracker(reid, device, half)
+    tracker = make_tracker(reid, device, half, new_track_thresh, track_high_thresh)
 
     import cv2
     tracks = out_dir / "tracks.jsonl"
@@ -72,7 +79,8 @@ def run(frames_meta, out_dir, yolo="yolo11x.pt", reid="clip_market1501.pt", imgs
             if f % 100 == 0:
                 print(f"[botsort] frame {f}/{n_frames}, {n} boxes, {len(tids)} ids")
     write_json(out_dir / "tracks_meta.json", {"tracker": "botsort", "n_obs": n, "n_tracks": len(tids),
-               "yolo": str(yolo), "reid": str(reid), "imgsz": imgsz, "conf": conf})
+               "yolo": str(yolo), "reid": str(reid), "imgsz": imgsz, "conf": conf,
+               "new_track_thresh": new_track_thresh, "track_high_thresh": track_high_thresh})
     print(f"[botsort] {n} boxes, {len(tids)} ids → {tracks}")
     return tracks
 
@@ -87,5 +95,8 @@ if __name__ == "__main__":
     ap.add_argument("--conf", type=float, default=0.25)
     ap.add_argument("--gpu", default="0")
     ap.add_argument("--no-half", action="store_true")
+    ap.add_argument("--new-track-thresh", type=float, default=0.25, help="min YOLO conf to birth a new track id (boxmot default 0.6 silently drops lower-conf people)")
+    ap.add_argument("--track-high-thresh", type=float, default=0.25, help="min YOLO conf for first-round matching (boxmot default 0.5)")
     a = ap.parse_args()
-    run(read_json(a.frames_meta), a.out, a.yolo, a.reid, a.imgsz, a.conf, a.gpu, not a.no_half)
+    run(read_json(a.frames_meta), a.out, a.yolo, a.reid, a.imgsz, a.conf, a.gpu, not a.no_half,
+        a.new_track_thresh, a.track_high_thresh)
