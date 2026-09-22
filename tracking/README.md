@@ -53,7 +53,7 @@ frame to frame on one person is not shippable; identities with some but not enou
 These are **GT-free agreement metrics** — SAM 3 measured against itself. They locate inconsistency, not
 truth: they cannot tell you whether someone actually is a woman, only that SAM 3's concepts disagree or
 stay silent. For correctness, watch the render. `render_gender.py` fills gender masks (woman magenta,
-man orange) and draws the `person` control as an **outline only**, so anyone wearing an outline with no
+man blue, blur prompt drawn last so its fill is never hidden by a conflicting concept) and draws the `person` control as an **outline only**, so anyone wearing an outline with no
 fill is a visible escape, marked in red when the report confirms it. It writes three videos: labels,
 the pixelated product, and an original-vs-blurred side-by-side.
 

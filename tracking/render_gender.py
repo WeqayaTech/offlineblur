@@ -34,7 +34,7 @@ from common import frame_path, read_json
 from render_masks import ffmpeg_writer, pixelate, rle_decode
 
 # BGR. Fills for the gender concepts, a neutral outline for the control prompt.
-PROMPT_COLOR = {"woman": (255, 0, 255), "man": (255, 160, 0), "girl": (200, 0, 255),
+PROMPT_COLOR = {"woman": (255, 0, 255), "man": (255, 160, 0), "girl": (200, 0, 255),   # BGR
                 "boy": (255, 200, 80), "person": (190, 190, 190)}
 DEFAULT_COLOR = (0, 255, 120)
 
@@ -116,9 +116,11 @@ def main():
                 cv2.putText(labels, "ESCAPE", (max(0, int(xs.mean()) - 30), max(24, int(ys.min()) - 6)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2, cv2.LINE_AA)
 
-        for prompt, tid, rle in entries:
-            if prompt == a.control_prompt:
-                continue
+        # blur prompt last: its fill must never be hidden by a conflicting concept, so what you see
+        # filled in this video is exactly what gets pixelated in the blur video
+        gender = [e for e in entries if e[0] != a.control_prompt]
+        gender.sort(key=lambda e: e[0] == a.blur_prompt)
+        for prompt, tid, rle in gender:
             m = rle_decode(rle)
             if not m.any():
                 continue
