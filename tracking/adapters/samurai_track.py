@@ -19,9 +19,13 @@ KeyErrors. Fix: give each new entrant its own frame sequence that starts at loca
 slice of the frames from its entry point onward — then map the returned local indices back to absolute
 frame numbers when writing tracks.jsonl.
 
+Writes `tracks.jsonl` (boxes, same schema as the other adapters, for compare.py) and, since SAM2's mask
+is already computed every frame and otherwise thrown away, `masks.jsonl` (RLE-encoded per-pixel mask per
+frame per id) — the actual differentiator over a box-only tracker, for pixel-accurate rendering/blur.
+
     python3 samurai_track.py --frames-meta <seq>/frames_meta.json --out <out_dir> \
         --samurai-repo /root/tracking/samurai --checkpoint <ckpt>.pt --model-size large \
-        --yolo yolo11x.pt --conf 0.4 --rescan-every 25 [--gpu 0]
+        --yolo yolo11x.pt --conf 0.4 --rescan-every 25 [--gpu 0] [--no-masks]
 """
 from __future__ import annotations
 
@@ -63,8 +67,14 @@ def mask_to_box(mask: np.ndarray):
     return [float(xs.min()), float(ys.min()), float(xs.max()) + 1.0, float(ys.max()) + 1.0]
 
 
+def mask_to_rle(mask: np.ndarray):
+    from pycocotools import mask as mu
+    r = mu.encode(np.asfortranarray(mask.astype(np.uint8)))
+    return {"size": [int(r["size"][0]), int(r["size"][1])], "counts": r["counts"].decode("ascii")}
+
+
 def run(frames_meta, out_dir, samurai_repo, checkpoint, model_size="large",
-        yolo="yolo11x.pt", conf=0.4, rescan_every=25, iou_new=0.3, lookback=10, gpu="0"):
+        yolo="yolo11x.pt", conf=0.4, rescan_every=25, iou_new=0.3, lookback=10, gpu="0", save_masks=True):
     import torch
     import cv2
 
@@ -92,8 +102,10 @@ def run(frames_meta, out_dir, samurai_repo, checkpoint, model_size="large",
     # detection that doesn't match (by IoU) the most recent box of an already-tracked object gets its
     # own fresh SAM2 pass seeded at that frame and propagated to the end of the clip.
     tracks = out_dir / "tracks.jsonl"
+    masks_path = out_dir / "masks.jsonl"
     boxes_by_oid: dict[int, dict[int, list]] = {}
     n, next_id, n_scans_with_new = 0, 0, 0
+    mask_out = open(masks_path, "w") if save_masks else None
     with open(tracks, "w") as out, torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
         for scan_frame in range(0, n_frames, rescan_every):
             im = cv2.imread(str(frame_path(img_dir, scan_frame)))
@@ -140,6 +152,8 @@ def run(frames_meta, out_dir, samurai_repo, checkpoint, model_size="large",
                         continue
                     out.write(json.dumps({"f": frame_idx, "tid": int(oid), "box": [round(v, 1) for v in bbox],
                                           "score": 1.0}) + "\n")
+                    if mask_out is not None:
+                        mask_out.write(json.dumps({"f": frame_idx, "tid": int(oid), "rle": mask_to_rle(m)}) + "\n")
                     fbmap[frame_idx] = bbox
                     n_obj += 1
                 boxes_by_oid[oid] = fbmap
@@ -153,9 +167,12 @@ def run(frames_meta, out_dir, samurai_repo, checkpoint, model_size="large",
             print(f"[samurai] scan@{scan_frame}/{n_frames}: {len(dets)} detections, "
                   f"{len(new_boxes)} new people, {len(boxes_by_oid)} objects total, {n} boxes so far")
 
+    if mask_out is not None:
+        mask_out.close()
     write_json(out_dir / "tracks_meta.json", {"tracker": "samurai", "n_obs": n, "n_tracks": len(boxes_by_oid),
                "model_size": model_size, "checkpoint": str(checkpoint), "yolo": str(yolo), "conf": conf,
-               "rescan_every": rescan_every, "iou_new": iou_new, "lookback": lookback})
+               "rescan_every": rescan_every, "iou_new": iou_new, "lookback": lookback,
+               "masks": str(masks_path) if save_masks else None})
     print(f"[samurai] {n} boxes, {len(boxes_by_oid)} ids (rescanned every {rescan_every} frames) → {tracks}")
     return tracks
 
@@ -173,6 +190,7 @@ if __name__ == "__main__":
     ap.add_argument("--iou-new", type=float, default=0.3, help="IoU below which a detection is treated as a new person")
     ap.add_argument("--lookback", type=int, default=10, help="frames to look back for an existing object's last box when matching")
     ap.add_argument("--gpu", default="0")
+    ap.add_argument("--no-masks", action="store_true", help="skip writing masks.jsonl (RLE per-pixel masks); tracks.jsonl boxes only")
     a = ap.parse_args()
     run(read_json(a.frames_meta), a.out, a.samurai_repo, a.checkpoint, a.model_size, a.yolo, a.conf,
-        a.rescan_every, a.iou_new, a.lookback, a.gpu)
+        a.rescan_every, a.iou_new, a.lookback, a.gpu, not a.no_masks)
