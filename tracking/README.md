@@ -18,10 +18,50 @@ and two mask-producing candidates, **SAMURAI** (SAM 2.1 + motion-aware memory) a
 | **BoT-SORT + ReID** | YOLO11x detector + boxmot BoT-SORT with camera-motion compensation and an appearance model, run fresh every frame (tracking-by-detection). | `adapters/botsort_track.py` |
 | **SAMURAI** | [yangchris11/samurai](https://github.com/yangchris11/samurai) — SAM 2.1's video predictor with a Kalman-filter motion model. Zero-shot, no training, but architecturally a **single-object VOT tracker**, not a multi-object one — see below for what that costs. | `adapters/samurai_track.py` |
 | **McByte** | [Roboflow `trackers`](https://trackers.roboflow.com/latest/trackers/mcbyte/) reimplementation of McByte (CVPRW 2025) — a ByteTrack derivative where any external detector's boxes drive birth/association as usual, and a SAM-seeded, Cutie-propagated per-pixel mask is layered on purely as an extra association cue (never gates whether a track exists, only which detection it links to). Closest of the four to a drop-in mask-level upgrade over BoT-SORT. | `adapters/mcbyte_track.py` |
-| **SAM 3** | text-prompted (`"person"`) open-vocabulary detection+tracking, `facebook/sam3` via `transformers`. Needs no external detector — native multi-object, unlike SAMURAI's per-object workaround. Written against the HF model card's API; **not yet run against real footage**, so whether its detector re-seeds new entrants mid-clip is unverified. | `adapters/sam3_track.py` |
+| **SAM 3** | text-prompted open-vocabulary detection+tracking, `facebook/sam3` via `transformers`. Needs no external detector — native multi-object, unlike SAMURAI's per-object workaround. Also the only candidate that can *be* the selector: prompt it `woman` and the identities it returns are the blur set. See "SAM 3 as the whole pipeline" below. | `adapters/sam3_track.py` |
 
 All five write the same `tracks.jsonl`, so `compare.py` scores any two of them head to head. McByte and
 SAMURAI additionally write `masks.jsonl` (RLE per id per frame), renderable with `render_masks.py`.
+
+### SAM 3 as the whole pipeline: gender as the prompt (production candidate, step 1)
+
+Every other candidate here answers "where are the people?" and leaves "which of them do we blur?" to a
+separate stage — the trained head in `v2/`, or the Qwen judge in v3. SAM 3 is the one model that can
+answer both at once, because its prompt is an open-vocabulary concept rather than a fixed class: ask it
+for `woman` and it returns detections, per-pixel masks *and* stable identities for exactly the people
+the selector is supposed to catch. If that works, the pipeline collapses from detector + tracker + ReID
++ classifier down to one forward pass.
+
+Multi-prompt is native: `processor.add_text_prompt` takes a **list**, all concepts run in a single
+propagation pass sharing vision features, and `postprocess_outputs` returns `prompt_to_obj_ids` so each
+object knows which concept produced it. So the step-1 run asks three questions at once, for barely more
+than the cost of one:
+
+| prompt | role |
+|---|---|
+| `woman` | the selector under test — these identities are the blur set |
+| `man` | contrastive. A person claimed by **both** concepts is a *conflict*: SAM 3 is internally undecided, so blurring them is a coin flip. |
+| `person` | recall control. Anyone `person` finds that neither gender concept covers is an *escape* — and an escape ships **unblurred**, which is the only error that actually costs us. |
+
+`sam3_gender_report.py` matches the three concepts against each other by **per-pixel mask IoU** (not box
+IoU — SAM 3 gives real masks and this pipeline is per-pixel end to end), rolls the result up to each
+`person` identity, and labels it `woman` / `man` / `conflict` / `flicker` / `ungendered`. A concept must
+cover `--min-frac` (default 0.5) of an identity's frames to own it, because a selector that flickers
+frame to frame on one person is not shippable; identities with some but not enough coverage are
+`flicker` and count as escapes alongside `ungendered`.
+
+These are **GT-free agreement metrics** — SAM 3 measured against itself. They locate inconsistency, not
+truth: they cannot tell you whether someone actually is a woman, only that SAM 3's concepts disagree or
+stay silent. For correctness, watch the render. `render_gender.py` fills gender masks (woman magenta,
+man orange) and draws the `person` control as an **outline only**, so anyone wearing an outline with no
+fill is a visible escape, marked in red when the report confirms it. It writes three videos: labels,
+the pixelated product, and an original-vs-blurred side-by-side.
+
+Caveats going in, to check on the first real run: `woman`/`man` are *appearance* concepts, so expect
+back-views, children and heavily occluded fragments to land in `ungendered`; SAM 3's defaults
+(`score_threshold_detection=0.5`, `new_det_thresh=0.7`) are tuned for precision, and `new_det_thresh`
+is the first knob to lower if escapes are high (exposed as `--new-det-thresh`). Blur-side errors are
+recoverable, escapes are not, so the sweep should run toward over-blurring.
 
 ### SAMURAI's architecture, and what it took to get a fair multi-person run
 
@@ -121,6 +161,17 @@ McByte alone is much lighter: verified on an **RTX 2000 Ada 16 GB**, 20 GB conta
 after YOLO26x + SAM ViT-B + Cutie base-mega). No MOTIP/deformable-attention op involved, so it's fine on
 any Ampere/Ada/Hopper card including ones too small for the full MOTIP+BoT-SORT bake-off.
 
+**SAM 3 is the exception to the no-Blackwell rule, and needs its own env.** It compiles nothing — the
+`transformers` implementation is pure PyTorch — so the deformable-attention problem that bars Blackwell
+for MOTIP does not apply, and an **RTX PRO 4500 / 6000 (Blackwell, 32 GB+)** is fine *provided the image's
+torch actually ships `sm_120` kernels*, i.e. a **PyTorch 2.7+ / CUDA 12.8** template. A cu124 torch on a
+Blackwell card fails at the first kernel launch; `pod_setup_sam3.sh` checks `torch.cuda.get_arch_list()`
+and runs a real bf16 matmul before installing anything. It is also a **separate env** from
+`pod_setup_tracking.sh`: that one pins `transformers<4.57` for MOTIP's compiled op, while SAM 3 needs a
+much newer transformers for `Sam3VideoModel`. Don't run both setups in one environment. `facebook/sam3`
+is **gated** — accept the licence on the model page with the same account as your token, then export
+`HF_TOKEN` before running the setup.
+
 ## Run
 
 ```bash
@@ -131,6 +182,21 @@ bash tracking/run_samurai_bakeoff.sh /root/tracking/videos/<clip>.mp4  # SAMURAI
 pip install "trackers[mask]"                                          # McByte: no repo clone needed
 bash tracking/run_mcbyte_bakeoff.sh /root/tracking/videos/<clip>.mp4   # McByte vs BoT-SORT + mask showcase video
 ```
+
+SAM 3 runs in its **own** environment (see Pod above), not the bake-off one:
+
+```bash
+export HF_TOKEN=hf_...                              # facebook/sam3 is gated; accept the licence first
+bash tracking/pod_setup_sam3.sh                     # arch check, newest transformers, fetch weights
+bash tracking/get_clips.sh
+bash tracking/run_sam3_gender.sh /root/tracking/videos/<clip>.mp4
+```
+
+`run_sam3_gender.sh` takes `PROMPTS` (default `woman,man,person`), `BLUR_PROMPT` (default `woman`),
+`GPU`, `DTYPE`, `MAXS` (seconds, 0 = whole clip), `MIN_SCORE`, `NEW_DET_THRESH`, `SCORE_THRESH` and
+`MAX_OBJECTS`. Per clip it leaves `out/<clip>/sam3_gender/` holding `tracks.jsonl`, `masks.jsonl`,
+`prompts.json`, `gender/metrics.json`, `gender/person_identities.json` and the three videos
+(`*_labels.mp4`, `*_blur.mp4`, `*_sbs.mp4`).
 
 `run_samurai_bakeoff.sh` needs the SAMURAI repo and a SAM 2.1 checkpoint set up separately (clone
 [yangchris11/samurai](https://github.com/yangchris11/samurai) `--recursive`, `pip install -e sam2/`,
