@@ -281,7 +281,7 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
         dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
         chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3,
-        memory_keep=20, cond_keep=0, drop_removed=False):
+        memory_keep=20, cond_keep=0, drop_removed=True):
     """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
 
     chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
@@ -476,9 +476,11 @@ if __name__ == "__main__":
                          "model reads at most num_maskmem-1 (6) and hotstart needs ~15, so 20 is "
                          "lossless and makes a session's footprint flat instead of linear in video "
                          "length. 0 disables pruning (the stock behaviour that OOMs on long video)")
-    ap.add_argument("--drop-removed-objects", action="store_true",
-                    help="free storage for objects SAM 3 itself reports in removed_obj_ids. Bounds the "
-                         "object count, which frame pruning alone does not")
+    ap.add_argument("--no-drop-removed-objects", dest="drop_removed_objects", action="store_false",
+                    help="keep storage for objects SAM 3 itself reported as removed. On by default "
+                         "because it is byte-for-byte lossless (verified) and bounds the object count, "
+                         "which frame pruning alone does not")
+    ap.set_defaults(drop_removed_objects=True)
     ap.add_argument("--cond-keep-frames", type=int, default=0,
                     help="per object, keep only this many recent CONDITIONING frames. OFF by default: "
                          "measured NOT lossless (7136 obs vs 7131 unpruned at cond-keep 8) and it barely "
