@@ -85,7 +85,7 @@ def build_model(model_id, device, dtype, overrides: dict):
 
 
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
-        dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None):
+        dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu"):
     import torch
     from PIL import Image
 
@@ -97,15 +97,19 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     device = f"cuda:{gpu}"
     dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[dtype_name]
 
-    print(f"[sam3] loading {model_id} ({dtype_name}) on {device}")
+    print(f"[sam3] loading {model_id} ({dtype_name}) on {device}, state on {state_device}", flush=True)
     model, processor, applied = build_model(model_id, device, dtype, overrides or {})
 
     frames = [Image.open(frame_path(img_dir, f)).convert("RGB") for f in range(n_frames)]
-    print(f"[sam3] {len(frames)} frames ({W}x{H}) loaded; prompts = {prompts}")
+    print(f"[sam3] {len(frames)} frames ({W}x{H}) loaded; prompts = {prompts}", flush=True)
 
+    # inference_state_device defaults to inference_device, i.e. the GPU. That quietly parks every
+    # tracked object's memory bank in VRAM, so usage grows with frames x objects and a crowd clip OOMs
+    # mid-run (measured: 30 GB by frame 99 of 300 with 81 objects on a 32 GB card). Host RAM is plentiful
+    # and the transfers are non_blocking, so the state belongs on the CPU.
     session = processor.init_video_session(
-        video=frames, inference_device=device, processing_device="cpu",
-        video_storage_device="cpu", dtype=dtype,
+        video=frames, inference_device=device, inference_state_device=state_device,
+        processing_device="cpu", video_storage_device="cpu", dtype=dtype,
     )
     # a list here runs every concept in ONE propagation pass, sharing vision features
     session = processor.add_text_prompt(inference_session=session, text=list(prompts)) or session
@@ -163,7 +167,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
                 mem = torch.cuda.max_memory_allocated(device) / 1e9
                 per = " ".join(f"{p}={len(t)}" for p, t in prompt_tids.items())
                 print(f"[sam3] frame {f}/{n_frames}  {n_obs} obs  ids[{per}]  "
-                      f"peak {mem:.1f} GB  {(time.time() - t0) / max(1, f + 1):.2f} s/frame")
+                      f"peak {mem:.1f} GB  {(time.time() - t0) / max(1, f + 1):.2f} s/frame", flush=True)
 
     if mask_out is not None:
         mask_out.close()
@@ -171,6 +175,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     write_json(out_dir / "prompts.json", {p: sorted(t) for p, t in prompt_tids.items()})
     write_json(out_dir / "tracks_meta.json", {
         "tracker": "sam3", "model_id": model_id, "prompts": list(prompts), "dtype": dtype_name,
+        "state_device": state_device,
         "n_obs": n_obs, "n_dropped": n_dropped, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
@@ -193,6 +198,9 @@ if __name__ == "__main__":
     ap.add_argument("--model-id", default="facebook/sam3")
     ap.add_argument("--gpu", default="0")
     ap.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
+    ap.add_argument("--state-device", default="cpu",
+                    help="where per-object memory banks live. 'cpu' (default) keeps VRAM flat; 'cuda:0' "
+                         "is faster but grows with frames x objects and OOMs on crowd clips")
     ap.add_argument("--max-frames", type=int, default=None)
     ap.add_argument("--min-score", type=float, default=0.0, help="drop observations below this score")
     ap.add_argument("--no-masks", action="store_true")
@@ -212,4 +220,4 @@ if __name__ == "__main__":
             "new_det_thresh": a.new_det_thresh,
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
-        })
+        }, a.state_device)
