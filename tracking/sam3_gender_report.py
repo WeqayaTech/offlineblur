@@ -73,6 +73,9 @@ def main():
     ap.add_argument("--blur-prompt", default="woman")
     ap.add_argument("--other-prompt", default="man")
     ap.add_argument("--control-prompt", default="person")
+    ap.add_argument("--extra-prompts", default="",
+                    help="comma-separated concepts reported as coverage columns only, never changing a "
+                         "verdict (e.g. 'child' — useful to see how many escapes are actually children)")
     ap.add_argument("--cover-iou", type=float, default=0.5,
                     help="mask IoU at which a gender mask is judged to be the same physical person as a control mask")
     ap.add_argument("--conflict-iou", type=float, default=0.5,
@@ -86,6 +89,9 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
     per_frame, tids, n_masks = load(a.masks)
     BL, OT, CT = a.blur_prompt, a.other_prompt, a.control_prompt
+    EXTRA = [p for p in (x.strip() for x in a.extra_prompts.split(",")) if p]
+    # verdicts come from BL/OT alone; EXTRA concepts are measured and reported, never decisive
+    MEASURED = [BL, OT] + EXTRA
     print(f"[report] {n_masks} masks over {len(per_frame)} frames; "
           f"ids: " + ", ".join(f"{p}={len(t)}" for p, t in sorted(tids.items())))
     if CT not in tids:
@@ -110,7 +116,7 @@ def main():
         ctrl = byp.get(CT, [])
         for tid, _ in ctrl:
             seen[tid] += 1
-        for p in (BL, OT):
+        for p in MEASURED:
             gm = byp.get(p, [])
             if not gm or not ctrl:
                 continue
@@ -141,8 +147,18 @@ def main():
         else:
             v = "ungendered"   # no gender concept ever fired on this person -> ships unblurred
         counts[v] += 1
-        verdicts[str(tid)] = {"frames": nf, "first": spans[tid][0], "last": spans[tid][1],
-                              f"frac_{BL}": round(fb, 3), f"frac_{OT}": round(fo, 3), "verdict": v}
+        rec = {"frames": nf, "first": spans[tid][0], "last": spans[tid][1]}
+        for p in MEASURED:
+            rec[f"frac_{p}"] = round(cov[tid].get(p, 0) / nf, 3)
+        rec["verdict"] = v
+        if v in ("ungendered", "flicker"):
+            # name any extra concept that does cover this escape — usually explains it
+            expl = [p for p in EXTRA if cov[tid].get(p, 0) / nf >= a.min_frac]
+            if expl:
+                rec["explained_by"] = expl
+                for p in expl:
+                    counts[f"escape_is_{p}"] += 1
+        verdicts[str(tid)] = rec
 
     n_ctrl = len(seen)
     escapes = counts["ungendered"] + counts["flicker"]
@@ -156,7 +172,8 @@ def main():
         "control_prompt": CT, "blur_prompt": BL, "other_prompt": OT,
         "thresholds": {"cover_iou": a.cover_iou, "conflict_iou": a.conflict_iou, "min_frac": a.min_frac},
         "identities": {"control_total": n_ctrl, **{k: counts[k] for k in
-                       (BL, OT, "conflict", "flicker", "ungendered")}},
+                       (BL, OT, "conflict", "flicker", "ungendered")},
+                       **{f"escape_is_{p}": counts[f"escape_is_{p}"] for p in EXTRA}},
         "escape_rate_identities": round(escapes / n_ctrl, 3) if n_ctrl else None,
         "conflict_rate_blur_obs": round(conflict_frames / blur_frames_total, 3) if blur_frames_total else None,
         "conflict_obs": conflict_frames, "blur_obs": blur_frames_total,
@@ -171,6 +188,9 @@ def main():
         print(f"\n  '{CT}' identities: {n_ctrl}")
         for k in (BL, OT, "conflict", "flicker", "ungendered"):
             print(f"    {k:<12}{counts[k]:>4}  ({counts[k] / n_ctrl:.0%})")
+        for p in EXTRA:
+            if counts[f"escape_is_{p}"]:
+                print(f"    of which '{p}':{counts[f'escape_is_{p}']:>3}")
         print(f"\n  escape rate (no confident gender, ships unblurred): {escapes}/{n_ctrl} = {escapes / n_ctrl:.0%}")
     if blur_frames_total:
         print(f"  conflict rate ('{BL}' masks also claimed by '{OT}'): "

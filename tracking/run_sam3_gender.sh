@@ -2,7 +2,9 @@
 # SAM 3 with gender as the prompt — the production-pipeline candidate, end to end on one clip.
 #   bash run_sam3_gender.sh /root/tracking/videos/clip.mp4 [out_root]
 # env: GPU=0  PROMPTS=woman,man,person  BLUR_PROMPT=woman  DTYPE=bfloat16  MAXS=0 (seconds, 0=all)
-#      MIN_SCORE=0  NEW_DET_THRESH=  SCORE_THRESH=  MAX_OBJECTS=
+#      MIN_SCORE=0  NEW_DET_THRESH=  SCORE_THRESH=  MAX_OBJECTS=  MODEL_ID=facebook/sam3
+# MODEL_ID may be a local directory holding the transformers snapshot, which avoids the gated
+# download entirely when the weights are already on the machine.
 #
 # One SAM 3 session runs all three concepts in a single propagation pass (shared vision features):
 #   woman  -> the blur set      man -> contrastive, exposes undecided people
@@ -13,6 +15,7 @@ export PIP_BREAK_SYSTEM_PACKAGES=1 HF_HUB_DISABLE_XET=1 HF_HOME=${HF_HOME:-/root
 ROOT="${2:-/root/tracking/out}"; STEM=$(basename "${V%.*}"); O="$ROOT/$STEM/sam3_gender"; mkdir -p "$O"
 CODE="$(cd "$(dirname "$0")" && pwd)"
 GPU=${GPU:-0}; PROMPTS=${PROMPTS:-woman,man,person}; BLUR_PROMPT=${BLUR_PROMPT:-woman}
+MODEL_ID=${MODEL_ID:-facebook/sam3}
 echo "=== SAM 3 gender prompt: $STEM  prompts='$PROMPTS'  ->  $O  ($(date +%T))"
 
 # 1) frames (same DanceTrack layout every other adapter in this module uses)
@@ -27,7 +30,7 @@ if [ ! -f "$O/tracks.jsonl" ]; then
   [ -n "$SCORE_THRESH" ]   && EXTRA="$EXTRA --score-threshold-detection $SCORE_THRESH"
   [ -n "$MAX_OBJECTS" ]    && EXTRA="$EXTRA --max-num-objects $MAX_OBJECTS"
   python3 "$CODE/adapters/sam3_track.py" --frames-meta "$META" --out "$O" --text "$PROMPTS" \
-    --gpu "$GPU" --dtype "${DTYPE:-bfloat16}" --min-score "${MIN_SCORE:-0}" $EXTRA
+    --model-id "$MODEL_ID" --gpu "$GPU" --dtype "${DTYPE:-bfloat16}" --min-score "${MIN_SCORE:-0}" $EXTRA
 else echo "[sam3] done (delete $O/tracks.jsonl to rerun)"; fi
 
 # 3) escape / conflict numbers between the three concepts (GT-free: SAM 3 vs itself)
