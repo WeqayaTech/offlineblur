@@ -3,7 +3,9 @@
 #   bash run_sam3_gender.sh /root/tracking/videos/clip.mp4 [out_root]
 # env: GPU=0  PROMPTS=woman,man,person  BLUR_PROMPT=woman  DTYPE=bfloat16  MAXS=0 (seconds, 0=all)
 #      MIN_SCORE=0  NEW_DET_THRESH=  SCORE_THRESH=  MAX_OBJECTS=  MODEL_ID=facebook/sam3
-#      STATE_DEVICE=cpu  EXTRA_PROMPTS=child
+#      STATE_DEVICE=cpu  EXTRA_PROMPTS=child  CHUNK=100  CHUNK_OVERLAP=10  STITCH_IOU=0.3
+# CHUNK resets SAM 3 every N frames and re-links identities across the reset, so peak VRAM is
+# set by the chunk rather than by clip length. CHUNK=0 runs one session over the whole clip.
 # MODEL_ID may be a local directory holding the transformers snapshot, which avoids the gated
 # download entirely when the weights are already on the machine.
 #
@@ -33,7 +35,8 @@ if [ ! -f "$O/tracks.jsonl" ]; then
   [ -n "$MAX_OBJECTS" ]    && EXTRA="$EXTRA --max-num-objects $MAX_OBJECTS"
   python3 "$CODE/adapters/sam3_track.py" --frames-meta "$META" --out "$O" --text "$PROMPTS" \
     --model-id "$MODEL_ID" --gpu "$GPU" --dtype "${DTYPE:-bfloat16}" --min-score "${MIN_SCORE:-0}" \
-    --state-device "${STATE_DEVICE:-cpu}" $EXTRA
+    --state-device "${STATE_DEVICE:-cpu}" --chunk-frames "${CHUNK:-100}" \
+    --chunk-overlap "${CHUNK_OVERLAP:-10}" --stitch-iou "${STITCH_IOU:-0.3}" $EXTRA
 else echo "[sam3] done (delete $O/tracks.jsonl to rerun)"; fi
 
 # 3) escape / conflict numbers between the three concepts (GT-free: SAM 3 vs itself)

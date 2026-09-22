@@ -30,11 +30,19 @@ Outputs (same schema family as the other adapters, plus a `prompt` field):
 Needs gated access to facebook/sam3 (accept the licence at https://huggingface.co/facebook/sam3, then
 `hf auth login` or set HF_TOKEN) and a transformers new enough to ship `Sam3VideoModel`.
 
+Long videos: one session's memory grows with the number of tracked objects, so `--chunk-frames N`
+resets SAM 3 every N frames and re-links identities across the reset by mean per-pixel mask IoU over
+a `--chunk-overlap` window (matching only within the same prompt). Peak memory then depends on the
+chunk, not the video length. The stitch is geometric, so it carries an identity through a reset but
+does not re-identify anyone who left and came back — that still needs appearance ReID.
+
     python3 sam3_track.py --frames-meta <seq>/frames_meta.json --out <dir> --text woman,man,person
+    python3 sam3_track.py ... --chunk-frames 150 --chunk-overlap 10     # bounded memory, long clips
 """
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import sys
 import time
@@ -61,6 +69,55 @@ def _as_list(x):
     return list(x)
 
 
+def rle_iou(dt, gt):
+    """IoU matrix between two lists of RLE dicts (pycocotools wants `counts` as bytes)."""
+    from pycocotools import mask as mu
+    if not dt or not gt:
+        return [[0.0] * len(gt) for _ in dt]
+    def b(r):
+        c = r["counts"]
+        return {"size": r["size"], "counts": c.encode("ascii") if isinstance(c, str) else c}
+    return mu.iou([b(r) for r in dt], [b(r) for r in gt], [0] * len(gt)).tolist()
+
+
+def stitch(prev, cur, iou_thresh):
+    """Match a new chunk's objects to the previous chunk's across their shared overlap frames.
+
+    prev: {prompt: {gid:   {abs_frame: rle}}}   already-numbered objects from the previous chunk
+    cur:  {prompt: {local: {abs_frame: rle}}}   this chunk's objects, ids local to its session
+    Returns {(prompt, local): gid}.
+
+    Objects are only ever matched WITHIN a prompt: a "woman" object must not inherit a "man"
+    object's identity just because they sit on the same pixels. Score is the mean per-pixel mask
+    IoU over the frames where both are present, so a single lucky frame cannot carry a match.
+    Greedy best-first, which is enough here because a person overlapping two candidates above the
+    threshold on a multi-frame average is already a failure case no assignment rule fixes.
+    """
+    out = {}
+    for prompt, curobjs in cur.items():
+        prevobjs = prev.get(prompt, {})
+        if not prevobjs or not curobjs:
+            continue
+        pairs = []
+        for gid, pframes in prevobjs.items():
+            for local, cframes in curobjs.items():
+                shared = set(pframes) & set(cframes)
+                if not shared:
+                    continue
+                ious = [rle_iou([pframes[f]], [cframes[f]])[0][0] for f in sorted(shared)]
+                m = sum(ious) / len(ious)
+                if m >= iou_thresh:
+                    pairs.append((m, gid, local))
+        pairs.sort(reverse=True)
+        used_g, used_c = set(), set()
+        for m, gid, local in pairs:
+            if gid in used_g or local in used_c:
+                continue
+            out[(prompt, local)] = gid
+            used_g.add(gid); used_c.add(local)
+    return out
+
+
 def build_model(model_id, device, dtype, overrides: dict):
     """Load Sam3VideoModel, applying any config overrides (detection thresholds) before instantiation."""
     import torch
@@ -84,8 +141,72 @@ def build_model(model_id, device, dtype, overrides: dict):
     return model, processor, applied
 
 
+def _propagate(model, processor, frames, prompts, device, dtype, state_device, base_f,
+               W, H, min_score, want_mask_rle):
+    """One SAM 3 session over `frames`; yields (abs_frame, [entry, ...]).
+
+    entry = {"prompt","oid","score","box",["rle"]}. The session is torn down and the GPU cache
+    dropped on exit, which is what makes chunking bound memory rather than merely delay the OOM.
+    """
+    import torch
+    session = processor.init_video_session(
+        video=frames, inference_device=device, inference_state_device=state_device,
+        processing_device="cpu", video_storage_device="cpu", dtype=dtype,
+    )
+    session = processor.add_text_prompt(inference_session=session, text=list(prompts)) or session
+    try:
+        with torch.inference_mode():
+            for model_outputs in model.propagate_in_video_iterator(inference_session=session):
+                lf = int(model_outputs.frame_idx)
+                processed = processor.postprocess_outputs(session, model_outputs)
+                obj_ids = _as_list(processed.get("object_ids"))
+                if not obj_ids:
+                    yield base_f + lf, []
+                    continue
+                scores = _as_list(processed.get("scores"))
+                boxes = _as_list(processed.get("boxes"))
+                masks = processed.get("masks")
+                p2o = processed.get("prompt_to_obj_ids") or {}
+                owner = {int(o): pr for pr, ids in p2o.items() for o in _as_list(ids)}
+                if not owner and len(prompts) > 1:
+                    raise SystemExit("[sam3] postprocess_outputs has no prompt_to_obj_ids — this "
+                                     "transformers build cannot attribute objects to prompts; run "
+                                     "one prompt per pass instead")
+                entries = []
+                for i, oid in enumerate(obj_ids):
+                    oid = int(oid)
+                    score = float(scores[i]) if i < len(scores) else 1.0
+                    if score < min_score:
+                        continue
+                    b = boxes[i]
+                    box = [max(0.0, float(b[0])), max(0.0, float(b[1])),
+                           min(float(W), float(b[2])), min(float(H), float(b[3]))]
+                    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+                        continue
+                    e = {"prompt": owner.get(oid, prompts[0]), "oid": oid,
+                         "score": score, "box": box}
+                    if want_mask_rle and masks is not None:
+                        m = masks[i]
+                        m = m.cpu().numpy() if hasattr(m, "cpu") else np.asarray(m)
+                        e["rle"] = mask_to_rle(np.squeeze(m) > 0.5)
+                    entries.append(e)
+                yield base_f + lf, entries
+    finally:
+        del session
+        gc.collect()
+        torch.cuda.empty_cache()
+
+
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
-        dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu"):
+        dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
+        chunk_frames=0, chunk_overlap=10, stitch_iou=0.3):
+    """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
+
+    chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
+    memory grows with the number of tracked objects. Any positive value resets SAM 3 every
+    chunk_frames frames, keeping `chunk_overlap` frames of context to re-link identities by mask IoU,
+    so peak memory is set by the chunk rather than by the video length.
+    """
     import torch
     from PIL import Image
 
@@ -97,77 +218,84 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     device = f"cuda:{gpu}"
     dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}[dtype_name]
 
+    chunk = n_frames if not chunk_frames else min(chunk_frames, n_frames)
+    overlap = 0 if chunk >= n_frames else max(1, min(chunk_overlap, chunk - 1))
+    step = chunk - overlap
+    n_chunks = 1 if overlap == 0 else max(1, -(-(n_frames - overlap) // step))
     print(f"[sam3] loading {model_id} ({dtype_name}) on {device}, state on {state_device}", flush=True)
     model, processor, applied = build_model(model_id, device, dtype, overrides or {})
-
-    frames = [Image.open(frame_path(img_dir, f)).convert("RGB") for f in range(n_frames)]
-    print(f"[sam3] {len(frames)} frames ({W}x{H}) loaded; prompts = {prompts}", flush=True)
-
-    # inference_state_device defaults to inference_device, i.e. the GPU. That quietly parks every
-    # tracked object's memory bank in VRAM, so usage grows with frames x objects and a crowd clip OOMs
-    # mid-run (measured: 30 GB by frame 99 of 300 with 81 objects on a 32 GB card). Host RAM is plentiful
-    # and the transfers are non_blocking, so the state belongs on the CPU.
-    session = processor.init_video_session(
-        video=frames, inference_device=device, inference_state_device=state_device,
-        processing_device="cpu", video_storage_device="cpu", dtype=dtype,
-    )
-    # a list here runs every concept in ONE propagation pass, sharing vision features
-    session = processor.add_text_prompt(inference_session=session, text=list(prompts)) or session
+    print(f"[sam3] {n_frames} frames ({W}x{H}); prompts = {prompts}; "
+          f"{n_chunks} chunk(s) of {chunk} frames, overlap {overlap}", flush=True)
 
     tracks_path, masks_path = out_dir / "tracks.jsonl", out_dir / "masks.jsonl"
     mask_out = open(masks_path, "w") if save_masks else None
     prompt_tids = {p: set() for p in prompts}
     per_prompt_obs = {p: 0 for p in prompts}
-    n_obs, n_dropped, t0 = 0, 0, time.time()
+    n_obs, next_gid, n_stitched, t0 = 0, 1, 0, time.time()
+    carry = {}          # {prompt: {gid: {abs_frame: rle}}} — previous chunk's tail, for stitching
+    written_upto = -1   # highest absolute frame already written
 
-    with open(tracks_path, "w") as out, torch.inference_mode():
-        for model_outputs in model.propagate_in_video_iterator(inference_session=session):
-            f = int(model_outputs.frame_idx)
-            processed = processor.postprocess_outputs(session, model_outputs)
-            obj_ids = _as_list(processed.get("object_ids"))
-            if not obj_ids:
-                continue
-            scores = _as_list(processed.get("scores"))
-            boxes = _as_list(processed.get("boxes"))
-            masks = processed.get("masks")
-            # {prompt: [obj_id,...]} -> {obj_id: prompt}; absent on older builds, then everything is
-            # attributed to the single prompt we asked for (and multi-prompt is not trustworthy).
-            p2o = processed.get("prompt_to_obj_ids") or {}
-            owner = {int(o): p for p, ids in p2o.items() for o in _as_list(ids)}
-            if not owner and len(prompts) > 1:
-                raise SystemExit("[sam3] postprocess_outputs has no prompt_to_obj_ids — this transformers "
-                                 "build cannot attribute objects to prompts; run one prompt per pass instead")
+    with open(tracks_path, "w") as out:
+        for ci in range(n_chunks):
+            c0 = ci * step
+            c1 = min(c0 + chunk, n_frames)
+            if c0 >= n_frames:
+                break
+            frames = [Image.open(frame_path(img_dir, f)).convert("RGB") for f in range(c0, c1)]
+            local2gid, buf, tail = {}, {}, {}
+            matched = overlap == 0 or ci == 0
 
-            for i, oid in enumerate(obj_ids):
-                oid = int(oid)
-                prompt = owner.get(oid, prompts[0])
-                score = float(scores[i]) if i < len(scores) else 1.0
-                if score < min_score:
-                    n_dropped += 1
+            def emit(af, entries):
+                nonlocal n_obs
+                for e in entries:
+                    gid = local2gid.get((e["prompt"], e["oid"]))
+                    if gid is None:
+                        gid = local2gid[(e["prompt"], e["oid"])] = _new_gid()
+                    out.write(json.dumps({"f": af, "tid": gid, "box": [round(v, 1) for v in e["box"]],
+                                          "score": round(e["score"], 3), "prompt": e["prompt"]}) + "\n")
+                    if mask_out is not None and "rle" in e:
+                        mask_out.write(json.dumps({"f": af, "tid": gid, "prompt": e["prompt"],
+                                                   "score": round(e["score"], 3), "rle": e["rle"]}) + "\n")
+                    prompt_tids.setdefault(e["prompt"], set()).add(gid)
+                    per_prompt_obs[e["prompt"]] = per_prompt_obs.get(e["prompt"], 0) + 1
+                    n_obs += 1
+
+            def _new_gid():
+                nonlocal next_gid
+                next_gid += 1
+                return next_gid - 1
+
+            for af, entries in _propagate(model, processor, frames, prompts, device, dtype,
+                                          state_device, c0, W, H, min_score,
+                                          save_masks or overlap > 0):
+                if not matched and af > written_upto:
+                    # the overlap window is complete: link this chunk's objects to the previous one
+                    m = stitch(carry, buf, stitch_iou)
+                    local2gid.update(m)
+                    n_stitched += len(m)
+                    print(f"[sam3] chunk {ci}: stitched {len(m)} of "
+                          f"{sum(len(v) for v in buf.values())} objects to previous chunk", flush=True)
+                    matched = True
+                if af <= written_upto:
+                    for e in entries:                       # overlap frame: match only, never rewrite
+                        if "rle" in e:
+                            buf.setdefault(e["prompt"], {}).setdefault(e["oid"], {})[af] = e["rle"]
                     continue
-                b = boxes[i]
-                box = [max(0.0, float(b[0])), max(0.0, float(b[1])),
-                       min(float(W), float(b[2])), min(float(H), float(b[3]))]
-                if box[2] - box[0] < 1 or box[3] - box[1] < 1:
-                    n_dropped += 1
-                    continue
-                out.write(json.dumps({"f": f, "tid": oid, "box": [round(v, 1) for v in box],
-                                      "score": round(score, 3), "prompt": prompt}) + "\n")
-                if mask_out is not None and masks is not None:
-                    m = masks[i]
-                    m = m.cpu().numpy() if hasattr(m, "cpu") else np.asarray(m)
-                    m = np.squeeze(m) > 0.5
-                    mask_out.write(json.dumps({"f": f, "tid": oid, "prompt": prompt,
-                                               "score": round(score, 3), "rle": mask_to_rle(m)}) + "\n")
-                prompt_tids.setdefault(prompt, set()).add(oid)
-                per_prompt_obs[prompt] = per_prompt_obs.get(prompt, 0) + 1
-                n_obs += 1
-
-            if f % 25 == 0:
-                mem = torch.cuda.max_memory_allocated(device) / 1e9
-                per = " ".join(f"{p}={len(t)}" for p, t in prompt_tids.items())
-                print(f"[sam3] frame {f}/{n_frames}  {n_obs} obs  ids[{per}]  "
-                      f"peak {mem:.1f} GB  {(time.time() - t0) / max(1, f + 1):.2f} s/frame", flush=True)
+                emit(af, entries)
+                written_upto = af
+                if af >= c1 - overlap and overlap:
+                    for e in entries:                       # this chunk's tail becomes next carry
+                        if "rle" in e:
+                            gid = local2gid.get((e["prompt"], e["oid"]))
+                            if gid is not None:
+                                tail.setdefault(e["prompt"], {}).setdefault(gid, {})[af] = e["rle"]
+                if af % 25 == 0:
+                    mem = torch.cuda.max_memory_allocated(device) / 1e9
+                    per = " ".join(f"{p}={len(t)}" for p, t in prompt_tids.items())
+                    print(f"[sam3] frame {af}/{n_frames}  {n_obs} obs  ids[{per}]  "
+                          f"peak {mem:.1f} GB  {(time.time() - t0) / max(1, af + 1):.2f} s/frame", flush=True)
+            carry = tail
+            del frames
 
     if mask_out is not None:
         mask_out.close()
@@ -175,8 +303,9 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     write_json(out_dir / "prompts.json", {p: sorted(t) for p, t in prompt_tids.items()})
     write_json(out_dir / "tracks_meta.json", {
         "tracker": "sam3", "model_id": model_id, "prompts": list(prompts), "dtype": dtype_name,
-        "state_device": state_device,
-        "n_obs": n_obs, "n_dropped": n_dropped, "n_frames": n_frames,
+        "state_device": state_device, "chunk_frames": chunk_frames, "chunk_overlap": overlap,
+        "n_chunks": n_chunks, "stitch_iou": stitch_iou, "n_stitched": n_stitched,
+        "n_obs": n_obs, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
         "n_obs_per_prompt": per_prompt_obs, "min_score": min_score,
@@ -185,7 +314,9 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
         "masks": str(masks_path) if save_masks else None,
     })
     per = ", ".join(f"{p}: {len(t)} ids / {per_prompt_obs.get(p, 0)} obs" for p, t in prompt_tids.items())
-    print(f"[sam3] done in {elapsed / 60:.1f} min — {per}  ({n_dropped} dropped) -> {tracks_path}")
+    print(f"[sam3] done in {elapsed / 60:.1f} min — {per}"
+          + (f"  ({n_stitched} stitched across {n_chunks} chunks)" if n_chunks > 1 else "")
+          + f" -> {tracks_path}", flush=True)
     return tracks_path
 
 
@@ -209,6 +340,14 @@ if __name__ == "__main__":
     ap.add_argument("--new-det-thresh", type=float, default=None, help="start a new object above (default 0.7)")
     ap.add_argument("--det-nms-thresh", type=float, default=None, help="detection NMS IoU (default 0.1)")
     ap.add_argument("--max-num-objects", type=int, default=None, help="cap tracked objects (default 10000; lower to bound VRAM)")
+    # chunking: reset the tracker periodically so peak memory is set by the chunk, not the video length
+    ap.add_argument("--chunk-frames", type=int, default=0,
+                    help="reset SAM 3 every N frames and re-link identities across the reset "
+                         "(0 = one session for the whole clip)")
+    ap.add_argument("--chunk-overlap", type=int, default=10,
+                    help="frames shared between consecutive chunks, used only to re-link identities")
+    ap.add_argument("--stitch-iou", type=float, default=0.3,
+                    help="mean per-pixel mask IoU over the overlap required to carry an identity across a reset")
     a = ap.parse_args()
 
     prompts = [p.strip() for p in a.text.split(",") if p.strip()]
@@ -220,4 +359,4 @@ if __name__ == "__main__":
             "new_det_thresh": a.new_det_thresh,
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
-        }, a.state_device)
+        }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou)
