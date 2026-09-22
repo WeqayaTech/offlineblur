@@ -118,7 +118,7 @@ def stitch(prev, cur, iou_thresh):
     return out
 
 
-def prune_session_memory(session, current_frame, keep):
+def prune_session_memory(session, current_frame, keep, cond_keep=0):
     """Drop per-object memory entries the model can no longer read. Returns bytes freed by device.
 
     SAM 3's tracker stores `maskmem_features` / `maskmem_pos_enc` / `high_res_masks` for EVERY object
@@ -131,26 +131,37 @@ def prune_session_memory(session, current_frame, keep):
     non-conditioning frames are ever read. Conditioning frames are a separate, capped store
     (`max_cond_frame_num` = 4) and are never touched here.
 
-    `keep` must stay above that read window AND above `hotstart_delay` (15), since hotstart resolves
-    tracklets using recent frames. At the default of 20 this is lossless: same output, flat memory.
+`cond_keep` additionally trims conditioning frames, and is OFF by default because the experiment
+    said so. The reasoning looked sound — attention takes only the `max_cond_frame_num` (4) closest and
+    tracking is forward-only — but measured output differed from unpruned (7136 observations vs 7131)
+    while memory barely moved (8.5 vs 8.6 GB at frame 275). It costs exactness and buys nothing, so it
+    stays off unless someone finds a use for it.
+
+    `keep` must stay above the non-cond read window AND above `hotstart_delay` (15), since hotstart
+    resolves tracklets using recent frames. At the default of 20 this is lossless: same output, flat
+    memory. Verified byte-for-byte against an unpruned run rather than assumed.
     """
     cutoff = current_frame - keep
-    if cutoff <= 0:
-        return {}
     freed = {}
+
+    def _drop(entry):
+        if not isinstance(entry, dict):
+            return
+        for v in entry.values():
+            for t in (v if isinstance(v, (list, tuple)) else [v]):
+                if hasattr(t, "numel") and hasattr(t, "element_size"):
+                    dev = str(t.device)
+                    freed[dev] = freed.get(dev, 0) + t.numel() * t.element_size()
+
     for obj_idx, d in getattr(session, "output_dict_per_obj", {}).items():
         nc = d.get("non_cond_frame_outputs")
-        if not nc:
-            continue
-        for f in [f for f in nc if f < cutoff]:
-            entry = nc.pop(f, None)
-            if not isinstance(entry, dict):
-                continue
-            for v in entry.values():
-                for t in (v if isinstance(v, (list, tuple)) else [v]):
-                    if hasattr(t, "numel") and hasattr(t, "element_size"):
-                        dev = str(t.device)
-                        freed[dev] = freed.get(dev, 0) + t.numel() * t.element_size()
+        if nc and cutoff > 0:
+            for f in [f for f in nc if f < cutoff]:
+                _drop(nc.pop(f, None))
+        cf = d.get("cond_frame_outputs")
+        if cf and cond_keep and len(cf) > cond_keep:
+            for f in sorted(cf)[:-cond_keep]:
+                _drop(cf.pop(f, None))
     return freed
 
 
@@ -178,7 +189,7 @@ def build_model(model_id, device, dtype, overrides: dict):
 
 
 def _propagate(model, processor, frames, prompts, device, dtype, state_device, base_f,
-               W, H, min_score, want_mask_rle, memory_keep=0):
+               W, H, min_score, want_mask_rle, memory_keep=0, cond_keep=0):
     """One SAM 3 session over `frames`; yields (abs_frame, [entry, ...]).
 
     entry = {"prompt","oid","score","box",["rle"]}. The session is torn down and the GPU cache
@@ -198,7 +209,7 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                 obj_ids = _as_list(processed.get("object_ids"))
                 if not obj_ids:
                     if memory_keep:
-                        prune_session_memory(session, lf, memory_keep)
+                        prune_session_memory(session, lf, memory_keep, cond_keep)
                     yield base_f + lf, []
                     continue
                 scores = _as_list(processed.get("scores"))
@@ -229,7 +240,7 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                         e["rle"] = mask_to_rle(np.squeeze(m) > 0.5)
                     entries.append(e)
                 if memory_keep:
-                    prune_session_memory(session, lf, memory_keep)
+                    prune_session_memory(session, lf, memory_keep, cond_keep)
                 yield base_f + lf, entries
     finally:
         del session
@@ -240,7 +251,7 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
         dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
         chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3,
-        memory_keep=20):
+        memory_keep=20, cond_keep=0):
     """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
 
     chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
@@ -339,7 +350,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
 
             for af, entries in _propagate(model, processor, frames, prompts, device, dtype,
                                           state_device, c0, W, H, min_score,
-                                          save_masks or overlap > 0, memory_keep):
+                                          save_masks or overlap > 0, memory_keep, cond_keep):
                 if not matched and af > written_upto:
                     # the overlap window is complete: link this chunk's objects to the previous one
                     m = stitch(carry, buf, stitch_iou)
@@ -379,7 +390,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
         "state_device": state_device, "chunk_frames": chunk_frames, "chunk_overlap": overlap,
         "n_chunks": n_chunks, "stitch_iou": stitch_iou, "n_stitched": n_stitched,
         "reid_window": reid_window, "reid_iou": reid_iou, "n_relinked": n_relinked,
-        "memory_keep": memory_keep,
+        "memory_keep": memory_keep, "cond_keep": cond_keep,
         "n_obs": n_obs, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
@@ -434,6 +445,10 @@ if __name__ == "__main__":
                          "model reads at most num_maskmem-1 (6) and hotstart needs ~15, so 20 is "
                          "lossless and makes a session's footprint flat instead of linear in video "
                          "length. 0 disables pruning (the stock behaviour that OOMs on long video)")
+    ap.add_argument("--cond-keep-frames", type=int, default=0,
+                    help="per object, keep only this many recent CONDITIONING frames. OFF by default: "
+                         "measured NOT lossless (7136 obs vs 7131 unpruned at cond-keep 8) and it barely "
+                         "moved memory (8.5 vs 8.6 GB), so it buys nothing and costs exactness")
     a = ap.parse_args()
 
     prompts = [p.strip() for p in a.text.split(",") if p.strip()]
@@ -446,4 +461,4 @@ if __name__ == "__main__":
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
         }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou,
-        a.reid_window, a.reid_iou, a.memory_keep_frames)
+        a.reid_window, a.reid_iou, a.memory_keep_frames, a.cond_keep_frames)
