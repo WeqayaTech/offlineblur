@@ -199,13 +199,20 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
 
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
         dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
-        chunk_frames=0, chunk_overlap=10, stitch_iou=0.3):
+        chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3):
     """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
 
     chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
-    memory grows with the number of tracked objects. Any positive value resets SAM 3 every
-    chunk_frames frames, keeping `chunk_overlap` frames of context to re-link identities by mask IoU,
-    so peak memory is set by the chunk rather than by the video length.
+    memory grows with clip length. Any positive value resets SAM 3 every chunk_frames frames, keeping
+    `chunk_overlap` frames of context to re-link identities by mask IoU, so peak memory is set by the
+    chunk rather than by the video length.
+
+    Re-linking is two-stage, because the overlap window alone is not enough. Measured on the trial
+    clip: of the identities alive across a boundary, a fifth were momentarily occluded during a
+    10-frame window, so the window could not see them and they came back with a new id. Stage 2
+    therefore matches an object appearing within `reid_window` frames of a reset against the LAST
+    mask of any identity last seen before that reset. It is deliberately scoped to just after a
+    reset: it repairs what chunking broke, it is not general re-entry ReID.
     """
     import torch
     from PIL import Image
@@ -231,8 +238,9 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     mask_out = open(masks_path, "w") if save_masks else None
     prompt_tids = {p: set() for p in prompts}
     per_prompt_obs = {p: 0 for p in prompts}
-    n_obs, next_gid, n_stitched, t0 = 0, 1, 0, time.time()
+    n_obs, next_gid, n_stitched, n_relinked, t0 = 0, 1, 0, 0, time.time()
     carry = {}          # {prompt: {gid: {abs_frame: rle}}} — previous chunk's tail, for stitching
+    last_seen = {}      # {prompt: {gid: (abs_frame, rle)}} — every identity's most recent mask
     written_upto = -1   # highest absolute frame already written
 
     with open(tracks_path, "w") as out:
@@ -245,12 +253,33 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
             local2gid, buf, tail = {}, {}, {}
             matched = overlap == 0 or ci == 0
 
+            def relink(e, af):
+                """Stage 2: an object appearing just after a reset may be a pre-reset identity that was
+                occluded through the overlap window. Match its current mask against the last mask of
+                any identity last seen before this chunk began and not already claimed here."""
+                if ci == 0 or af - c0 > reid_window or "rle" not in e:
+                    return None
+                pool = last_seen.get(e["prompt"], {})
+                taken = set(local2gid.values())
+                cands = [(gid, rle) for gid, (lf, rle) in pool.items()
+                         if gid not in taken and lf < c0 + overlap]
+                if not cands:
+                    return None
+                ious = rle_iou([e["rle"]], [r for _, r in cands])[0]
+                best = max(range(len(cands)), key=lambda i: ious[i])
+                return cands[best][0] if ious[best] >= reid_iou else None
+
             def emit(af, entries):
-                nonlocal n_obs
+                nonlocal n_obs, n_relinked
                 for e in entries:
                     gid = local2gid.get((e["prompt"], e["oid"]))
                     if gid is None:
-                        gid = local2gid[(e["prompt"], e["oid"])] = _new_gid()
+                        gid = relink(e, af)
+                        if gid is not None:
+                            n_relinked += 1
+                        else:
+                            gid = _new_gid()
+                        local2gid[(e["prompt"], e["oid"])] = gid
                     out.write(json.dumps({"f": af, "tid": gid, "box": [round(v, 1) for v in e["box"]],
                                           "score": round(e["score"], 3), "prompt": e["prompt"]}) + "\n")
                     if mask_out is not None and "rle" in e:
@@ -259,6 +288,8 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
                     prompt_tids.setdefault(e["prompt"], set()).add(gid)
                     per_prompt_obs[e["prompt"]] = per_prompt_obs.get(e["prompt"], 0) + 1
                     n_obs += 1
+                    if "rle" in e:
+                        last_seen.setdefault(e["prompt"], {})[gid] = (af, e["rle"])
 
             def _new_gid():
                 nonlocal next_gid
@@ -274,7 +305,8 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
                     local2gid.update(m)
                     n_stitched += len(m)
                     print(f"[sam3] chunk {ci}: stitched {len(m)} of "
-                          f"{sum(len(v) for v in buf.values())} objects to previous chunk", flush=True)
+                          f"{sum(len(v) for v in buf.values())} objects visible in the overlap "
+                          f"({n_relinked} re-linked after resets so far)", flush=True)
                     matched = True
                 if af <= written_upto:
                     for e in entries:                       # overlap frame: match only, never rewrite
@@ -305,6 +337,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
         "tracker": "sam3", "model_id": model_id, "prompts": list(prompts), "dtype": dtype_name,
         "state_device": state_device, "chunk_frames": chunk_frames, "chunk_overlap": overlap,
         "n_chunks": n_chunks, "stitch_iou": stitch_iou, "n_stitched": n_stitched,
+        "reid_window": reid_window, "reid_iou": reid_iou, "n_relinked": n_relinked,
         "n_obs": n_obs, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
@@ -315,7 +348,8 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
     })
     per = ", ".join(f"{p}: {len(t)} ids / {per_prompt_obs.get(p, 0)} obs" for p, t in prompt_tids.items())
     print(f"[sam3] done in {elapsed / 60:.1f} min — {per}"
-          + (f"  ({n_stitched} stitched across {n_chunks} chunks)" if n_chunks > 1 else "")
+          + (f"  ({n_stitched} stitched in-window + {n_relinked} re-linked after reset, "
+                 f"{n_chunks} chunks)" if n_chunks > 1 else "")
           + f" -> {tracks_path}", flush=True)
     return tracks_path
 
@@ -348,6 +382,11 @@ if __name__ == "__main__":
                     help="frames shared between consecutive chunks, used only to re-link identities")
     ap.add_argument("--stitch-iou", type=float, default=0.3,
                     help="mean per-pixel mask IoU over the overlap required to carry an identity across a reset")
+    ap.add_argument("--reid-window", type=int, default=60,
+                    help="frames after a reset during which a new object may be re-linked to an identity "
+                         "that was occluded through the overlap window (0 disables stage 2)")
+    ap.add_argument("--reid-iou", type=float, default=0.3,
+                    help="mask IoU against an identity's last-seen mask required for that re-link")
     a = ap.parse_args()
 
     prompts = [p.strip() for p in a.text.split(",") if p.strip()]
@@ -359,4 +398,5 @@ if __name__ == "__main__":
             "new_det_thresh": a.new_det_thresh,
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
-        }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou)
+        }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou,
+        a.reid_window, a.reid_iou)

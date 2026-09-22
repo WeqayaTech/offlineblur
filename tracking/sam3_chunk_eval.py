@@ -17,8 +17,13 @@ that matter for a blur pipeline:
           welded into one id. Worse than a split, because a selector decision then leaks between them.
   ORPHAN  a mask on one side with no counterpart on the other. Detection differences, not id bookkeeping.
 
-A split whose switch frame sits on a chunk boundary was caused by chunking. A split in the middle of a
-chunk was going to happen anyway and is not chunking's fault, so the two are counted separately.
+Attribution needs care. SAM 3 is deterministic, so the two runs are bit-identical until the first
+reset — measured on the trial clip: zero switches before frame 100, seven within four frames of it.
+Once a reset perturbs the trajectory the runs drift, so a switch deep inside a later chunk is still
+*downstream of* a reset, not independent evidence that the tracker was unstable there. This tool
+therefore reports switches before the first boundary separately: that count is a determinism check
+and should be zero. Everything after the first boundary is attributed to chunking, and the
+distance-to-preceding-boundary histogram shows whether the damage is immediate or accumulated.
 
     python3 sam3_chunk_eval.py --a <single>/masks.jsonl --b <chunked>/masks.jsonl \
         --frames-meta <seq>/frames_meta.json --b-meta <chunked>/tracks_meta.json --out <dir>
@@ -133,17 +138,21 @@ def main():
     splits = {at: sorted(bs) for at, bs in a2b.items() if len(bs) > 1}
     merges = {bt: sorted(a_) for bt, a_ in b2a.items() if len(a_) > 1}
 
-    # where does each split actually switch, and is that a chunk boundary?
-    at_boundary, mid_chunk, switch_frames = 0, 0, {}
+    # when does each split switch, and how far after a reset?
+    switch_frames, all_sw = {}, []
     for at in splits:
         fr = sorted(timeline[at])
         sw = [f for prev, f in zip(fr, fr[1:]) if timeline[at][prev] != timeline[at][f]]
         switch_frames[str(at)] = sw
-        for f in sw:
-            if any(abs(f - b) <= a.boundary_slack for b in bounds):
-                at_boundary += 1
-            else:
-                mid_chunk += 1
+        all_sw += sw
+    first_b = bounds[0] if bounds else None
+    before_first = [f for f in all_sw if first_b is not None and f < first_b]
+    immediate = sum(1 for f in all_sw if any(0 <= f - b <= a.boundary_slack for b in bounds))
+    lag = {}
+    for f in all_sw:
+        prior = [b for b in bounds if b <= f]
+        if prior:
+            lag[f - max(prior)] = lag.get(f - max(prior), 0) + 1
 
     res = {
         "clip": fm.get("video"), "n_frames": fm.get("n_frames"), "prompt": a.prompt,
@@ -152,7 +161,10 @@ def main():
         "baseline": {"ids": len(a_ids), "masks": sum(len(v) for v in A.values()), "unmatched_masks": a_orphan},
         "chunked": {"ids": len(b_ids), "masks": sum(len(v) for v in B.values()), "unmatched_masks": b_orphan},
         "splits": len(splits), "merges": len(merges),
-        "split_switches_at_boundary": at_boundary, "split_switches_mid_chunk": mid_chunk,
+        "switches_total": len(all_sw),
+        "switches_before_first_boundary": len(before_first),
+        "switches_within_slack_of_a_boundary": immediate,
+        "switches_by_frames_after_preceding_boundary": dict(sorted(lag.items())),
         "split_detail": {str(k): v for k, v in splits.items()},
         "merge_detail": {str(k): v for k, v in merges.items()},
         "split_switch_frames": switch_frames,
@@ -163,8 +175,10 @@ def main():
     print(f"\n  baseline ids      {len(a_ids)}")
     print(f"  chunked  ids      {len(b_ids)}")
     print(f"  splits            {len(splits)}   (one baseline person, >1 chunked id)")
-    print(f"     at a boundary  {at_boundary}   <- caused by chunking")
-    print(f"     mid-chunk      {mid_chunk}   <- would have happened anyway")
+    print(f"  id switches       {len(all_sw)}")
+    print(f"     before 1st reset {len(before_first)}   <- must be 0; nonzero means SAM 3 is not deterministic")
+    print(f"     within {a.boundary_slack} of a reset {immediate}   <- immediate damage")
+    print(f"     later            {len(all_sw) - len(before_first) - immediate}   <- drift downstream of a reset")
     print(f"  merges            {len(merges)}   (two baseline people welded into one chunked id)")
     print(f"  unmatched masks   baseline {a_orphan}/{ab} ({a_orphan / max(1, ab):.1%}), "
           f"chunked {b_orphan}/{sum(len(v) for v in B.values())}")
