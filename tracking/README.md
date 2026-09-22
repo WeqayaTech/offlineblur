@@ -57,6 +57,26 @@ man blue, blur prompt drawn last so its fill is never hidden by a conflicting co
 fill is a visible escape, marked in red when the report confirms it. It writes three videos: labels,
 the pixelated product, and an original-vs-blurred side-by-side.
 
+**Long videos: chunked tracking.** One SAM 3 session's VRAM grows with clip *length*, not just crowd
+size. Measured on a 32 GB card with four prompts at 1280x720: peak climbed ~2.8 GB per 25 frames and
+kept climbing while the object count was flat, OOMing a 300-frame clip around frame 260. Two fixes,
+both in `adapters/sam3_track.py`:
+
+1. `inference_state_device` defaults to `inference_device`, so passing only `inference_device="cuda"`
+   parks every object's memory bank in VRAM. Keeping the state on the host halved peak usage (17.0 ->
+   8.0 GB at frame 50) and costs little, since the transfers are non-blocking.
+2. That slowed the growth but did not stop it, so `--chunk-frames N` tears the session down every N
+   frames and rebuilds it. Peak is then set by the chunk, not the clip: flat at 11.1 GB from frame 100
+   to 150 where the single session was at 16.3 GB and rising.
+
+Identity survives the reset. Consecutive chunks share `--chunk-overlap` frames and objects are
+re-linked by **mean** per-pixel mask IoU across that window (45 of 46 objects carried at the first
+boundary on the trial clip). Matching happens **only within the same prompt** — a `woman` object must
+never inherit a `man` object's identity because they land on the same pixels, since that silently
+corrupts the blur set. Mean rather than best frame means one lucky frame cannot carry a match. The
+stitch is purely geometric: it carries an identity *through a reset*, it does **not** re-identify
+someone who left the frame and came back. That still needs appearance ReID.
+
 Caveats going in, to check on the first real run: `woman`/`man` are *appearance* concepts, so expect
 back-views, children and heavily occluded fragments to land in `ungendered`; SAM 3's defaults
 (`score_threshold_detection=0.5`, `new_det_thresh=0.7`) are tuned for precision, and `new_det_thresh`
