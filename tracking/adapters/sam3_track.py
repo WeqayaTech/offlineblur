@@ -165,6 +165,32 @@ def prune_session_memory(session, current_frame, keep, cond_keep=0):
     return freed
 
 
+def drop_removed_objects(session, model_outputs):
+    """Free storage for objects SAM 3 has itself declared dead. Returns how many were dropped.
+
+    Pruning old frames bounds per-object state, but the number of OBJECTS still only grows: every
+    person ever seen keeps an entry for the rest of the video, and per-frame work scales with that
+    count. Measured on a 900-frame clip: object count climbed past 70 and peak VRAM kept rising even
+    with frame pruning on.
+
+    This is safe precisely because we do not decide who is dead. `Sam3VideoSegmentationOutput`
+    reports `removed_obj_ids` — objects the model's own keep-alive and hotstart heuristics have
+    already discarded — so dropping their storage cannot change any future output. Anything still
+    alive is left untouched.
+    """
+    removed = getattr(model_outputs, "removed_obj_ids", None)
+    if not removed:
+        return 0
+    n = 0
+    for oid in list(removed):
+        try:
+            session.remove_object(int(oid), strict=False)
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
 def build_model(model_id, device, dtype, overrides: dict):
     """Load Sam3VideoModel, applying any config overrides (detection thresholds) before instantiation."""
     import torch
@@ -189,7 +215,7 @@ def build_model(model_id, device, dtype, overrides: dict):
 
 
 def _propagate(model, processor, frames, prompts, device, dtype, state_device, base_f,
-               W, H, min_score, want_mask_rle, memory_keep=0, cond_keep=0):
+               W, H, min_score, want_mask_rle, memory_keep=0, cond_keep=0, drop_removed=False):
     """One SAM 3 session over `frames`; yields (abs_frame, [entry, ...]).
 
     entry = {"prompt","oid","score","box",["rle"]}. The session is torn down and the GPU cache
@@ -210,6 +236,8 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                 if not obj_ids:
                     if memory_keep:
                         prune_session_memory(session, lf, memory_keep, cond_keep)
+                    if drop_removed:
+                        drop_removed_objects(session, model_outputs)
                     yield base_f + lf, []
                     continue
                 scores = _as_list(processed.get("scores"))
@@ -241,6 +269,8 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                     entries.append(e)
                 if memory_keep:
                     prune_session_memory(session, lf, memory_keep, cond_keep)
+                if drop_removed:
+                    drop_removed_objects(session, model_outputs)
                 yield base_f + lf, entries
     finally:
         del session
@@ -251,7 +281,7 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
         dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
         chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3,
-        memory_keep=20, cond_keep=0):
+        memory_keep=20, cond_keep=0, drop_removed=False):
     """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
 
     chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
@@ -350,7 +380,8 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
 
             for af, entries in _propagate(model, processor, frames, prompts, device, dtype,
                                           state_device, c0, W, H, min_score,
-                                          save_masks or overlap > 0, memory_keep, cond_keep):
+                                          save_masks or overlap > 0, memory_keep, cond_keep,
+                                          drop_removed):
                 if not matched and af > written_upto:
                     # the overlap window is complete: link this chunk's objects to the previous one
                     m = stitch(carry, buf, stitch_iou)
@@ -390,7 +421,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
         "state_device": state_device, "chunk_frames": chunk_frames, "chunk_overlap": overlap,
         "n_chunks": n_chunks, "stitch_iou": stitch_iou, "n_stitched": n_stitched,
         "reid_window": reid_window, "reid_iou": reid_iou, "n_relinked": n_relinked,
-        "memory_keep": memory_keep, "cond_keep": cond_keep,
+        "memory_keep": memory_keep, "cond_keep": cond_keep, "drop_removed": drop_removed,
         "n_obs": n_obs, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
@@ -445,6 +476,9 @@ if __name__ == "__main__":
                          "model reads at most num_maskmem-1 (6) and hotstart needs ~15, so 20 is "
                          "lossless and makes a session's footprint flat instead of linear in video "
                          "length. 0 disables pruning (the stock behaviour that OOMs on long video)")
+    ap.add_argument("--drop-removed-objects", action="store_true",
+                    help="free storage for objects SAM 3 itself reports in removed_obj_ids. Bounds the "
+                         "object count, which frame pruning alone does not")
     ap.add_argument("--cond-keep-frames", type=int, default=0,
                     help="per object, keep only this many recent CONDITIONING frames. OFF by default: "
                          "measured NOT lossless (7136 obs vs 7131 unpruned at cond-keep 8) and it barely "
@@ -461,4 +495,5 @@ if __name__ == "__main__":
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
         }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou,
-        a.reid_window, a.reid_iou, a.memory_keep_frames, a.cond_keep_frames)
+        a.reid_window, a.reid_iou, a.memory_keep_frames, a.cond_keep_frames,
+        a.drop_removed_objects)
