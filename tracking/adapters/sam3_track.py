@@ -118,6 +118,42 @@ def stitch(prev, cur, iou_thresh):
     return out
 
 
+def prune_session_memory(session, current_frame, keep):
+    """Drop per-object memory entries the model can no longer read. Returns bytes freed by device.
+
+    SAM 3's tracker stores `maskmem_features` / `maskmem_pos_enc` / `high_res_masks` for EVERY object
+    on EVERY frame and never removes them, so a session's footprint grows linearly with video length.
+    Measured on a 250-frame 720p clip with the person prompt: ~40 MB/frame on the GPU and more again
+    in host RAM, which is why long videos OOM.
+
+    Almost all of it is unreachable. `_get_temporal_positions_and_previous_outputs` walks
+    `range(num_maskmem - 1, 0, -1)` at stride 1, so only the previous `num_maskmem - 1` (6 by default)
+    non-conditioning frames are ever read. Conditioning frames are a separate, capped store
+    (`max_cond_frame_num` = 4) and are never touched here.
+
+    `keep` must stay above that read window AND above `hotstart_delay` (15), since hotstart resolves
+    tracklets using recent frames. At the default of 20 this is lossless: same output, flat memory.
+    """
+    cutoff = current_frame - keep
+    if cutoff <= 0:
+        return {}
+    freed = {}
+    for obj_idx, d in getattr(session, "output_dict_per_obj", {}).items():
+        nc = d.get("non_cond_frame_outputs")
+        if not nc:
+            continue
+        for f in [f for f in nc if f < cutoff]:
+            entry = nc.pop(f, None)
+            if not isinstance(entry, dict):
+                continue
+            for v in entry.values():
+                for t in (v if isinstance(v, (list, tuple)) else [v]):
+                    if hasattr(t, "numel") and hasattr(t, "element_size"):
+                        dev = str(t.device)
+                        freed[dev] = freed.get(dev, 0) + t.numel() * t.element_size()
+    return freed
+
+
 def build_model(model_id, device, dtype, overrides: dict):
     """Load Sam3VideoModel, applying any config overrides (detection thresholds) before instantiation."""
     import torch
@@ -142,7 +178,7 @@ def build_model(model_id, device, dtype, overrides: dict):
 
 
 def _propagate(model, processor, frames, prompts, device, dtype, state_device, base_f,
-               W, H, min_score, want_mask_rle):
+               W, H, min_score, want_mask_rle, memory_keep=0):
     """One SAM 3 session over `frames`; yields (abs_frame, [entry, ...]).
 
     entry = {"prompt","oid","score","box",["rle"]}. The session is torn down and the GPU cache
@@ -161,6 +197,8 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                 processed = processor.postprocess_outputs(session, model_outputs)
                 obj_ids = _as_list(processed.get("object_ids"))
                 if not obj_ids:
+                    if memory_keep:
+                        prune_session_memory(session, lf, memory_keep)
                     yield base_f + lf, []
                     continue
                 scores = _as_list(processed.get("scores"))
@@ -190,6 +228,8 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
                         m = m.cpu().numpy() if hasattr(m, "cpu") else np.asarray(m)
                         e["rle"] = mask_to_rle(np.squeeze(m) > 0.5)
                     entries.append(e)
+                if memory_keep:
+                    prune_session_memory(session, lf, memory_keep)
                 yield base_f + lf, entries
     finally:
         del session
@@ -199,7 +239,8 @@ def _propagate(model, processor, frames, prompts, device, dtype, state_device, b
 
 def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_masks=True,
         dtype_name="bfloat16", max_frames=None, min_score=0.0, overrides=None, state_device="cpu",
-        chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3):
+        chunk_frames=0, chunk_overlap=10, stitch_iou=0.3, reid_window=60, reid_iou=0.3,
+        memory_keep=20):
     """Track `prompts` across the clip, optionally in chunks with identity stitched across resets.
 
     chunk_frames=0 runs the whole clip in one session, which is the most accurate option but whose
@@ -298,7 +339,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
 
             for af, entries in _propagate(model, processor, frames, prompts, device, dtype,
                                           state_device, c0, W, H, min_score,
-                                          save_masks or overlap > 0):
+                                          save_masks or overlap > 0, memory_keep):
                 if not matched and af > written_upto:
                     # the overlap window is complete: link this chunk's objects to the previous one
                     m = stitch(carry, buf, stitch_iou)
@@ -338,6 +379,7 @@ def run(frames_meta, out_dir, prompts, model_id="facebook/sam3", gpu="0", save_m
         "state_device": state_device, "chunk_frames": chunk_frames, "chunk_overlap": overlap,
         "n_chunks": n_chunks, "stitch_iou": stitch_iou, "n_stitched": n_stitched,
         "reid_window": reid_window, "reid_iou": reid_iou, "n_relinked": n_relinked,
+        "memory_keep": memory_keep,
         "n_obs": n_obs, "n_frames": n_frames,
         "n_tracks": sum(len(t) for t in prompt_tids.values()),
         "n_tracks_per_prompt": {p: len(t) for p, t in prompt_tids.items()},
@@ -387,6 +429,11 @@ if __name__ == "__main__":
                          "that was occluded through the overlap window (0 disables stage 2)")
     ap.add_argument("--reid-iou", type=float, default=0.3,
                     help="mask IoU against an identity's last-seen mask required for that re-link")
+    ap.add_argument("--memory-keep-frames", type=int, default=20,
+                    help="per object, keep only this many recent non-conditioning memory frames. The "
+                         "model reads at most num_maskmem-1 (6) and hotstart needs ~15, so 20 is "
+                         "lossless and makes a session's footprint flat instead of linear in video "
+                         "length. 0 disables pruning (the stock behaviour that OOMs on long video)")
     a = ap.parse_args()
 
     prompts = [p.strip() for p in a.text.split(",") if p.strip()]
@@ -399,4 +446,4 @@ if __name__ == "__main__":
             "det_nms_thresh": a.det_nms_thresh,
             "max_num_objects": a.max_num_objects,
         }, a.state_device, a.chunk_frames, a.chunk_overlap, a.stitch_iou,
-        a.reid_window, a.reid_iou)
+        a.reid_window, a.reid_iou, a.memory_keep_frames)
