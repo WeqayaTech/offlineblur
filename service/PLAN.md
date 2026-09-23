@@ -1,17 +1,45 @@
 # SAM 3 short-video service — deployment plan
 
-Branch `sam3/deploy-plan`, written 2026-09-22. This is the plan only; no service code exists yet.
+Branch `sam3/deploy-plan`, revised 2026-09-23. Plan only; no service code exists yet.
 
-## 1. What we are shipping
+## 1. The split
 
-A URL where a user uploads a short video and gets back, for every person in it, a stable identity,
-a per-frame box and per-pixel mask, and a label (`woman` / `man` / `person`, plus a per-identity
-verdict). Optionally a rendered labels video and a blurred video. The GPU side is the SAM 3
-multi-prompt adapter that already exists in `tracking/adapters/sam3_track.py`; this plan wraps it
-in a service, it does not change how it tracks.
+The GPU does one thing: run SAM 3 over the uploaded video with a **fixed, preconfigured set of
+labels**, once, and return **metadata only**. Everything after that happens on the customer's
+device: choosing which labels to blur, previewing the blur in real time, changing the choice
+without any round trip, and exporting the final video.
 
-What the model does today, measured on the trial clip (`ali-dawah-street-interview-source.mp4`,
-300 frames, 1280x720), so the service is planned around real numbers:
+```
+customer device                                 GPU side (RunPod)
+--------------                                  -----------------
+upload video  ---------------------------->     ffmpeg -> frames (720p cap, stride)
+                                                SAM 3, all labels in one pass, chunked
+                                                stitch + relink -> canonical identities
+              <----------------------------     metadata bundle (identities + masks)
+                                                delete the video and frames
+keep the original locally
+decode bundle in a Web Worker
+play video, blur selected ids in a WebGL shader, live
+toggle labels / ids -> instant
+export blurred mp4 locally (WebCodecs)
+```
+
+Why this is the efficient shape:
+
+- **One GPU pass per video, ever.** The label set is fixed, so nothing about the user's choice
+  can trigger a re-run. The same upload twice returns the cached bundle (SAM 3 is deterministic,
+  so the bundle is keyed by content hash and reused).
+- **No server rendering.** No labels video, no blur video, no side-by-side, no render endpoint.
+  The GPU worker stops the moment the metadata is written. The measured pipeline spends real time
+  in `render_gender.py`; that time moves to the device, where it is spread across playback.
+- **Real-time selection.** Blur = "pixels whose identity id is in the selected set." Changing a
+  label toggles a set of ids. That is a lookup-table change in a shader, not a re-render.
+- **Privacy.** The server holds the video only while the job runs, then deletes it. It never
+  produces or stores a blurred output. The original never leaves the device except for the one
+  upload, and the result that gets shared is made on the device.
+
+What the model does today, measured on the trial clip (300 frames, 1280x720), so the sizes and
+times below are grounded:
 
 | run | ids | s/frame | peak VRAM | GPU |
 |---|---|---|---|---|
@@ -20,236 +48,235 @@ What the model does today, measured on the trial clip (`ali-dawah-street-intervi
 | person only, one session, 900 frames, pruned | 88 | 1.55 (23.2 min) | 17.4 GB | 24 GB card |
 | first frame (warm-up) | | ~18 s | | |
 
-Two facts from those runs shape the design:
+Two facts from those runs carry into the design: SAM 3 is deterministic (golden tests, content-hash
+cache), and chunks are independent sessions stitched afterwards (chunks can fan out across GPUs).
 
-- **SAM 3 is deterministic.** Same input, same output byte for byte. That gives us a golden-file
-  regression test and makes any run-to-run diff a real bug.
-- **Chunks are independent sessions.** Identity is stitched afterwards from overlap masks. That
-  means chunks can run on different GPUs in parallel and be reduced on CPU, which is the only
-  lever that makes a 30-second clip come back in minutes rather than tens of minutes.
+## 2. The preconfigured label set
 
-Known limit that the service must not hide: gender-as-selector is **not shippable as an automatic
-blur decision yet**. On the trial clip 25 % of `person` identities got no gender concept at all
-(escapes) and 28 % of `woman` observations were also claimed by `man`. So v1 returns tracking plus
-labels with confidence and lets the client review and pick the blur set. Auto-blur is a flag the
-client can turn on, off by default.
+Server config, not a per-job option. Initial set, all run in one propagation pass sharing vision
+features, so an extra prompt costs little GPU time but does add mask output:
 
-## 2. Frame-by-frame or whole video? Whole video, with results streamed back per frame
+| prompt | role in the bundle |
+|---|---|
+| `person` | recall control and the canonical identity space: every physical person gets one id from this prompt |
+| `woman` | label |
+| `man` | label |
+| `child` | label |
 
-The question in the brief was whether the client sends frames one at a time or the whole file.
-Recommendation: **the client uploads the whole file; the server streams results back frame by
-frame as they are produced.**
+Adding a label later (for example `face`, or a richer phrase like `adult woman`) is a config change
+plus a re-run of the golden test. The client never asks for prompts; it receives whatever the
+server was configured with and shows those as toggles.
 
-Why not frame-by-frame input:
+**Canonical identities.** Prompts produce separate object ids (a `woman` object and a `person`
+object on the same pixels). The bundle collapses them to one id per physical person using the
+per-pixel mask-IoU rollup that `sam3_gender_report.py` already does: `person` ids are the base,
+each label prompt's objects are assigned to the `person` id they overlap, and any label object that
+overlaps no `person` id becomes its own canonical id (so a `woman` detection is never dropped
+because the recall prompt missed her). Per canonical id the bundle carries, for every label, the
+fraction of that id's frames the label covered and the mean score. The verdict
+(`woman | man | child | conflict | flicker | ungendered`) is computed on the device from those
+fractions with a threshold the user can move, not baked in server-side.
 
-- SAM 3's streaming mode disables the hotstart de-duplication heuristics, and the model card says
-  that raises false positives. Every measurement we have is on pre-loaded video.
-- The adapter already loads a chunk of frames into memory before propagating. Feeding one frame at
-  a time buys nothing on the GPU and adds a round trip per frame over the network.
-- Upload is one request, resumable, easy to size-limit and validate.
+Known limit the client must surface, not hide: on the trial clip 25 % of `person` identities got
+no gender label at all and 28 % of `woman` observations were also claimed by `man`. So the default
+client view pre-selects the chosen label but shows `conflict`, `flicker` and `ungendered`
+identities as "review these" with their own toggles.
 
-Why streaming results out still matters: the propagation loop yields one frame at a time, so the
-client can draw boxes on a canvas as the job runs and the user sees progress within ~20 s of
-submitting instead of staring at a spinner for minutes. A frame-in websocket mode is kept as a
-phase-5 option for live/webcam input, with the false-positive cost measured before it is offered.
+## 3. The metadata bundle
 
-## 3. Architecture
+One file per job, `bundle.zip`, produced by the worker and served by a signed URL. Contents:
+
+**`manifest.json`**
 
 ```
-browser (static page)
-   | 1. POST /v1/jobs  (multipart video, or {"url": ...})
-   v
-API (FastAPI, CPU, always on)
-   | validates with ffprobe, caps size/length, writes video to object storage
-   | enqueues job
-   v
-queue (Redis)  ---->  GPU worker(s) (RunPod)
-                        | ffmpeg -> frames on container disk (720p cap, optional fps stride)
-                        | sam3 chunk sessions  (model loaded once per worker process)
-                        | per-frame progress + observations -> Redis pub/sub
-                        | stitch + relink -> tracks.jsonl / masks.jsonl / identities.json
-                        | optional: labels.mp4, blur.mp4
-                        v
-                      object storage (results, signed URLs, TTL)
-   ^
-   | 2. GET /v1/jobs/{id}          status + progress
-   | 3. GET /v1/jobs/{id}/events   SSE, one event per frame
-   | 4. GET /v1/jobs/{id}/result   URLs to artefacts
-browser draws overlays live, then shows the identity gallery for review
+{
+  "version": 1,
+  "video": {"fps": 29.97, "width": 1280, "height": 720, "n_frames": 900, "duration_s": 30.03,
+            "content_sha256": "..."},
+  "processing": {"stride": 2, "mask_width": 640, "mask_height": 360, "chunk_frames": 100,
+                 "model_snapshot": "3c879f39...", "labels": ["woman","man","child"],
+                 "control": "person", "seconds": 142.3, "gpu": "H100"},
+  "identities": [
+    {"id": 7, "first_frame": 0, "last_frame": 611, "n_obs": 298,
+     "labels": {"woman": {"frac": 0.91, "score": 0.83},
+                "man":   {"frac": 0.04, "score": 0.52},
+                "child": {"frac": 0.00, "score": 0.0}},
+     "thumb": "thumbs/7.jpg", "box_first": [412, 88, 610, 690]}
+  ],
+  "frames": [{"f": 0, "ids": [7, 12], "boxes": [[412,88,610,690],[...]]}, ...]
+}
 ```
 
-Two topologies, in the order we build them:
+`frames` carries boxes only, one entry per processed frame. It is small (tens of KB for 900
+frames) and lets the client draw a timeline of who is on screen before the masks are decoded.
 
-**Topology A, single pod (demo URL, week 1).** One RunPod GPU pod runs FastAPI, an in-process
-worker queue, and serves the static page. Storage is the container disk. No Redis, no object
-storage. This is the fastest path to a working URL and is enough for internal review.
+**`masks.bin`** the per-pixel data, the only large part. Format chosen for decode speed on a
+device, not for readability:
 
-**Topology B, split (production).** API on a cheap always-on CPU host, GPU on RunPod Serverless
-with a Docker image that has the SAM 3 weights baked in, Redis for queue and progress, S3-compatible
-object storage (Cloudflare R2 or RunPod's) for uploads and results. Scales to zero, pays per second
-of GPU. Cold start is the cost: image pull plus model load plus ~18 s first frame. Keep one worker
-warm during working hours, or accept ~60 to 90 s on the first job.
+- Masks are stored at `mask_width x mask_height` (default 640x360, half the processed frame). A
+  blur mask does not need full resolution once it is dilated a few pixels on the device.
+- Per processed frame: `uint16 n_ids`, then per id: `uint16 id`, `uint16 n_runs`, `uint16[]
+  runs` (alternating skip/fill run lengths over the row-major grid, COCO RLE order). All
+  little-endian.
+- Whole file gzip-compressed. Browsers decompress it natively with `DecompressionStream`, so the
+  client has no codec dependency.
+- Frames skipped by `stride` are not stored; the client reuses the nearest processed frame's
+  masks, which is why stride exists.
 
-The worker code is identical in both. Topology is a config choice, not a rewrite.
+Size estimate from the trial clip (about 22 canonical masks per frame, ~600 runs each at 640x360,
+2 bytes per run, gzip ~2.5x): roughly 0.3 MB per processed second, so a 30 s clip at stride 2 is
+about 5 MB and at stride 1 about 10 MB. These are estimates to be measured in M0; if they are off
+by more than 2x, the alternative is a lossless label-map video (one 8-bit frame per processed frame
+where pixel value = identity id) which compresses better across frames but needs a codec the
+device can decode, so it is second choice.
 
-## 4. API contract
+**`thumbs/<id>.jpg`** one crop per identity for the review gallery, from the frame with its
+highest score.
 
-All endpoints under `/v1`, API key in the `Authorization` header, JSON unless stated.
+**`tracks.jsonl` and `masks.jsonl`** are not in the bundle. The worker still writes them to its
+scratch dir so `sam3_chunk_eval.py` and the golden test can read them, and a debug flag can add
+them to the bundle for internal runs.
 
-**`POST /jobs`** multipart `video` file, or JSON `{"url": "..."}` for a public link. Options:
+## 4. API
 
-| field | default | meaning |
-|---|---|---|
-| `prompts` | `["woman","man","person"]` | concept prompts, all in one pass |
-| `blur_prompt` | `"woman"` | which prompt is the candidate blur set |
-| `max_seconds` | 30 | hard cap on processed duration |
-| `max_long_side` | 1280 | frames downscaled to this before SAM 3 |
-| `fps_stride` | 1 | process every N-th frame; skipped frames inherit the nearest mask |
-| `chunk_frames` | 100 | SAM 3 session length |
-| `new_det_thresh` | model default 0.7 | the escape/precision knob, exposed on purpose |
-| `outputs` | `["tracks","masks","identities"]` | add `"labels_video"`, `"blur_video"` |
-| `auto_blur` | false | render blur video from `blur_prompt` without review |
+Deliberately small. All under `/v1`, API key in the `Authorization` header.
 
-Returns `{"job_id", "status": "queued", "n_frames_est", "eta_seconds_est"}`. Rejects with 4xx on
-bad container, over-length, over-size, or non-video content.
+**`POST /jobs`** multipart `video`, or JSON `{"url": ...}`. No prompt options. The only knobs
+are `max_seconds` (default 30, hard cap 60) and `stride` (default 2, allowed 1 to 3), both
+clamped server-side. Returns `{"job_id", "status", "cached": bool, "eta_seconds_est"}`. If the
+content hash already has a bundle, `status` is `done` immediately and no GPU work happens.
 
 **`GET /jobs/{id}`** `{"status": queued|running|done|failed, "progress": {"frame", "n_frames",
-"sec_per_frame", "eta_seconds", "ids_per_prompt"}, "error"}`.
+"sec_per_frame", "eta_seconds"}, "bundle_url", "error"}`. The client polls this every 2 s; there
+is no per-frame event stream, because the client cannot do anything useful with partial masks
+before the whole bundle is stitched, and dropping SSE removes a moving part.
 
-**`GET /jobs/{id}/events`** Server-Sent Events. One `frame` event per processed frame carrying
-`{f, obs: [{tid, prompt, score, box}]}` (boxes only; masks are too large to stream). A final `done`
-event with the result URLs. Reconnect with `Last-Event-ID` resumes from that frame.
+**`DELETE /jobs/{id}`** removes the bundle and the cache entry for that hash.
 
-**`GET /jobs/{id}/result`** signed URLs plus inline summary:
-
-- `tracks.jsonl` `{f, tid, box, score, prompt}` (existing schema, unchanged)
-- `masks.jsonl` `{f, tid, prompt, score, rle}` COCO RLE at processed resolution (existing schema)
-- `identities.json` per identity: `tid, prompt, verdict (woman|man|conflict|flicker|ungendered),
-  first_frame, last_frame, n_obs, mean_score, thumbnail_url` — this is the per-identity **label**
-  the brief asks for, produced by `sam3_gender_report.py` logic
-- `metrics.json` the existing GT-free report (escape rate, conflict rate, ids per prompt)
-- `labels.mp4`, `blur.mp4`, `sbs.mp4` when requested
-- `meta.json` fps, size, stride, chunking, worker GPU, seconds, model snapshot hash
-
-**`POST /jobs/{id}/render`** `{"blur_tids": [..]}` renders a blur video for a chosen id set. This
-is the manual selector from the roadmap. CPU only, reads `masks.jsonl`, does not touch the GPU.
-
-**`DELETE /jobs/{id}`** removes upload and all artefacts immediately.
-
-Keeping the on-disk schema identical to what the adapter writes today means `render_gender.py`,
-`sam3_gender_report.py` and `sam3_chunk_eval.py` keep working on service output without changes.
+The video itself is deleted by the worker as soon as the bundle is written, whether or not the
+client ever downloads it. Bundles expire after 24 h.
 
 ## 5. GPU worker
 
-Package the existing code as `service/worker/` without forking it:
+Package the existing adapter as `service/worker/` without forking it:
 
-- **Model singleton.** `build_model` currently runs per call. Load once per process at worker
-  start, keep it on the GPU, pass it into `run`. Saves the load time on every job.
-- **Progress callback.** `run()` prints per 25 frames. Add an `on_frame(af, entries)` callback and
-  have the CLI keep its prints, so the service publishes to Redis and the CLI behaves as before.
-- **Frame extraction.** ffmpeg to JPEG on container disk (never the network volume), with the
-  720p cap and stride applied in the ffmpeg filter, not in Python. Frames are deleted with the job.
-- **Chunk map-reduce (Topology B only).** Emit one serverless task per chunk (100 frames plus 10
-  overlap), each returning its observations with masks. A CPU reducer runs the existing `stitch`
-  and `relink` over chunk outputs in order and assigns global ids. Wall time for a 900-frame clip
-  drops from ~13 min sequential to roughly one chunk's time plus reduce, about 2 to 3 min. This is
-  exact with respect to the current chunked algorithm because sessions are already independent.
-- **Weights.** Bake the transformers snapshot (`model.safetensors`, 3.4 GB) into the image. No
-  gated download at runtime, no HF token in the worker. The snapshot already on the RunPod volume
-  is the source for the image build.
-- **Environment.** Same rules as `pod_setup_sam3.sh`: PyTorch 2.7+ / CUDA 12.8 image so Blackwell
-  cards work, `transformers` new enough for `Sam3VideoModel`, `kernels>=0.16,<0.17`,
-  `HF_HUB_DISABLE_XET=1`, state device `cpu`, `expandable_segments:True`. The arch check and bf16
-  matmul from the setup script run at container start and fail fast.
-- **Limits.** `max_num_objects` capped (200) so a crowd cannot grow memory without bound. Job
-  timeout of `n_frames * 3 s` after which the job fails with a partial result kept.
+- **Model singleton.** `build_model` loads once per worker process; `run` takes the loaded model.
+- **Fixed prompt set from config.** `run` is called with the server's label list plus the control
+  prompt, every job, no exceptions.
+- **Frame extraction.** ffmpeg to JPEG on container disk with the 720p cap and stride in the
+  ffmpeg filter graph. Frames and the upload are deleted at job end, success or failure.
+- **Bundle writer.** New module: rollup to canonical ids (lifting the matching from
+  `sam3_gender_report.py`), per-id label fractions, thumbnails, `masks.bin` at half resolution,
+  zip. The adapter's `masks.jsonl` is the input, so the adapter itself is untouched.
+- **Chunk map-reduce (Topology B).** One serverless task per 100-frame chunk plus 10 overlap; a
+  CPU reducer runs the existing `stitch` and `relink` over chunk outputs in order, then the bundle
+  writer. Exact with respect to the current chunked algorithm because sessions are already
+  independent. This is what turns a 900-frame clip from ~13 min sequential into roughly one
+  chunk's time plus reduce, about 2 to 3 min.
+- **Weights baked into the image** from the transformers snapshot already on the RunPod volume
+  (3.4 GB). No gated download, no token at runtime.
+- **Environment** as in `pod_setup_sam3.sh`: PyTorch 2.7+ / CUDA 12.8 image, `transformers` with
+  `Sam3VideoModel`, `kernels>=0.16,<0.17`, `HF_HUB_DISABLE_XET=1`, state device `cpu`,
+  `expandable_segments:True`, arch check and bf16 matmul at container start.
+- **Limits.** `max_num_objects` 200, job timeout `n_frames * 3 s`.
+
+Two topologies, built in order. **A:** one GPU pod runs the API, an in-process queue, the worker,
+and serves the client page; container disk only. Fastest path to a URL. **B:** API on a cheap CPU
+host, Redis queue, S3-compatible object storage for uploads and bundles, RunPod Serverless workers,
+content-hash cache in Redis. Scales to zero; cold start (image pull, model load, ~18 s first frame)
+is the cost, mitigated by one warm worker during working hours. The worker code is the same.
 
 ## 6. Client
 
-A single static page, no framework needed for v1:
+A web app (works on desktop and phone browsers; the bundle format is client-agnostic, so a native
+app can consume it later). Four pieces:
 
-1. Upload (drag and drop or URL), options panel with the defaults above, submit.
-2. Live view: the video element plus a canvas. Boxes arrive over SSE and are drawn at the matching
-   frame time, colour by prompt (woman magenta, man blue, person outline only, matching
-   `render_gender.py` so the two views agree).
-3. Identity gallery: one card per identity with thumbnail, prompt, verdict, frame span, and a
-   checkbox pre-ticked for `woman` verdicts and unticked for everything else. `conflict` and
-   `flicker` cards are flagged so the reviewer looks at them.
-4. Render button posts the ticked ids to `/render` and shows the blurred video with a download link.
-5. Delete button.
+1. **Upload and wait.** Drag/drop or URL, progress bar from the poll. The original file stays in
+   memory or an Origin Private File System handle on the device.
+2. **Bundle decode.** A Web Worker streams `masks.bin` through `DecompressionStream`, parses the
+   runs, and keeps per-frame mask data in typed arrays. Frames are expanded to an 8-bit id map
+   (`Uint8Array` of `mask_width x mask_height`, pixel = identity id, 0 = none) lazily around the
+   playhead, with a ring buffer of a few seconds so seeking stays smooth. Ids above 255 are
+   remapped per frame (there are never 255 people on one frame).
+3. **Live blur.** `<video>` drawn into a WebGL canvas. Each displayed frame uploads the current id
+   map as a texture plus a 256-entry lookup texture "id selected or not". The fragment shader
+   samples the video, samples the id map at the same UV, and if the lookup says selected, samples
+   a pixelated or blurred version instead (mask dilated by a few texels in the shader). Toggling a
+   label rewrites the 256-entry lookup: instant, no decode, no re-render.
+4. **Selection UI.** Label toggles (`woman`, `man`, `child`) that select every identity whose
+   label fraction exceeds a threshold slider; an identity gallery (thumbnail, label fractions,
+   frame span) with per-id overrides; a timeline showing which ids are on screen; a "review these"
+   group for conflict / flicker / ungendered ids. All derived from `manifest.json` on the device.
+5. **Export.** WebCodecs: decode the original with `VideoDecoder`, run each frame through the same
+   shader offscreen, encode with `VideoEncoder` (H.264, hardware where available), mux with the
+   original audio track into mp4 using a small muxer library, hand the file to the user. Fallback
+   for browsers without WebCodecs: `MediaRecorder` from the canvas, which yields WebM. Nothing is
+   uploaded during export.
 
-Served by the API process in Topology A. In Topology B it is a static bundle on any host with the
-API base URL as config.
+## 7. Throughput budget and levers
 
-## 7. Throughput budget and the levers
+Server side, per job, at the measured 0.9 to 1.9 s/frame: a 30 s clip at 30 fps is 900 frames,
+450 at stride 2. Levers in order: 720p cap (already the measured resolution), stride 2 default,
+chunk map-reduce across workers, faster GPU tier (H100 expected 2 to 3x over the measured cards,
+to be confirmed in M0). Target: a 30 s clip returns its bundle in under 3 min wall time on
+Topology B, and instantly when cached.
 
-At the measured ~0.9 to 1.9 s/frame, a 30 s clip at 30 fps (900 frames) takes 13 to 28 min on one
-worker. That is not an interactive service. The levers, in the order we pull them:
+Device side: WebGL pixelation at 720p is well under a frame's budget on any phone from the last
+five years. The real constraint is bundle memory: 450 processed frames of RLE is a few MB; expanded
+id maps are 230 KB each, so the ring buffer is capped at ~90 frames (~20 MB) and refilled around
+the playhead.
 
-1. **Downscale to 720p** on ingest. Already the measured resolution; 1080p input would be slower.
-2. **fps stride 2 or 3.** Halves or thirds the frame count. Masks on skipped frames are copied from
-   the nearest processed frame; for blur that is fine once the mask is dilated a few pixels. Needs
-   one A/B on the trial clip to confirm ids do not fragment at 10 to 15 fps.
-3. **Fewer prompts.** `woman,person` is enough for the blur use case; `man` is the diagnostic
-   contrast. Two prompts instead of four should be near the person-only 0.86 s/frame.
-4. **Chunk map-reduce** across serverless workers (section 5). This is the big one.
-5. **Faster GPU.** All numbers are from a RTX PRO 4500 or a 24 GB card. An H100 is expected to be
-   2 to 3x faster; measure in milestone 0 before choosing the serverless GPU tier.
+## 8. Privacy and security
 
-Target after levers 1 to 4: a 30 s clip returns in under 3 minutes wall time with first overlays on
-screen within 30 s.
-
-## 8. Privacy, security, retention
-
-The input is video of real people, so:
-
-- TLS everywhere; API key per client; per-key rate limit and concurrent-job limit.
-- Validate the upload with ffprobe before anything else. Size cap (200 MB), duration cap
-  (`max_seconds`), container allowlist. Filenames are never interpolated into shell commands;
-  ffmpeg gets a fixed temp path and a timeout.
-- Uploads and artefacts have a TTL (default 24 h) and are deleted by a sweeper. `DELETE` is
-  immediate. Frames on the worker are removed at job end, success or failure.
-- No frame content in logs. Logs carry job id, frame counters, timings, and errors only.
-- Signed, expiring URLs for every artefact. Nothing is world-readable.
+- TLS; API key per client; per-key rate and concurrency limits.
+- ffprobe validation before anything else: size cap 200 MB, duration cap, container allowlist,
+  fixed temp paths, ffmpeg with a timeout. Filenames never touch a shell.
+- The video exists on the server only for the duration of the job. Bundles carry masks and
+  thumbnails, no full frames, and expire after 24 h. `DELETE` is immediate.
+- No frame content in logs; job id, counters, timings and errors only.
+- Content-hash cache means re-uploading the same clip costs nothing, but the hash is salted per
+  API key so one client's cache never reveals that another client uploaded the same video.
 
 ## 9. Observability
 
-Per job, recorded in `meta.json` and exported as metrics: queue wait, model load (cold or warm),
-sec/frame, peak VRAM, ids per prompt, escape rate, conflict rate, chunk count, stitched and
-relinked counts. `/healthz` on the API and a worker heartbeat in Redis. Alert on cold start over
-120 s, sec/frame over 3, and any job failure.
+Per job in `manifest.processing` and as metrics: queue wait, cold or warm load, sec/frame, peak
+VRAM, ids per prompt, bundle size, cache hit. `/healthz` on the API, worker heartbeat in Redis.
+Alerts on cold start over 120 s, sec/frame over 3, bundle size over 30 MB, any failure.
 
 ## 10. Testing and acceptance
 
-- **Golden regression.** The trial clip at 300 frames must produce byte-identical `tracks.jsonl`
-  and `masks.jsonl` to the committed golden run (62 ids / 7131 observations for `person`). Because
-  SAM 3 is deterministic, any diff is a real change. Runs on every image build.
-- **Chunk equivalence.** Map-reduce output must equal sequential chunked output exactly.
-- **Stride A/B.** Ids and escape rate at stride 1 vs 2 vs 3 on the trial clip; pick the default.
-- **API tests.** Bad container, over-length, over-size, unknown job, delete, SSE resume.
-- **Load test.** 5 concurrent 30 s jobs on Topology B; measure queue wait and per-job wall time.
-- **Acceptance for the demo URL.** Upload a 20 s phone clip, see first boxes within 30 s, get the
-  identity gallery, tick ids, download a blurred video. Whole loop under 5 minutes.
+- **Golden regression.** The trial clip must yield byte-identical `tracks.jsonl` and `masks.jsonl`
+  to the committed golden run (62 ids / 7131 observations for `person`) on every image build.
+  Then the bundle writer must produce a byte-identical `bundle.zip` from that.
+- **Chunk equivalence.** Map-reduce output equals sequential chunked output exactly.
+- **Stride A/B.** Ids and escape rate at stride 1, 2, 3 on the trial clip; confirm stride 2 as the
+  default and that half-resolution masks dilated by 3 px cover the full-resolution masks.
+- **Bundle size.** Measure `masks.bin` on the six-clip corpus; decide RLE vs label-map video.
+- **Client.** Decode a 30 s bundle on a mid-range Android phone in under 5 s; play at native fps
+  with blur on; toggle a label with no visible hitch; export a 30 s clip in under 2x real time on a
+  laptop. Exported mp4 opens in QuickTime, VLC, and a phone gallery with audio intact.
+- **API.** Bad container, over-length, over-size, unknown job, delete, cache hit, salted hash.
+- **Acceptance loop for the demo URL.** Upload a 20 s phone clip, get the bundle, see the gallery,
+  toggle `woman`, scrub the timeline with blur live, export, play the export. Under 5 min end to end.
 
 ## 11. Milestones
 
 | # | deliverable | done when |
 |---|---|---|
-| M0 | Benchmark on the candidate serverless GPU (H100 and one cheaper tier): sec/frame, VRAM, load time, at 720p with 2 and 4 prompts, stride 1 and 2 | numbers table committed to `service/BENCH.md`; GPU tier and stride default chosen |
-| M1 | `service/worker/`: model singleton, `on_frame` callback, ffmpeg ingest, job runner CLI, Dockerfile with baked weights, golden test | `docker run ... job.json` reproduces the golden output on a pod |
-| M2 | Topology A: FastAPI, in-process queue, SSE, static client, identity gallery, render endpoint | a URL on a single pod passes the acceptance loop in section 10 |
-| M3 | Topology B: RunPod Serverless handler, Redis, object storage, signed URLs, TTL sweeper, API on a CPU host | same acceptance loop against the split deployment; scales to zero |
-| M4 | Chunk map-reduce across serverless workers | 900-frame clip under 3 min wall, output identical to sequential |
-| M5 (optional) | Frame-in websocket mode for live input | false-positive delta vs batch measured and documented before exposure |
+| M0 | Benchmark on candidate GPU tiers at 720p, 4 prompts, stride 1 and 2; measure `masks.bin` size on the corpus | numbers in `service/BENCH.md`; GPU tier, stride default and mask format chosen |
+| M1 | `service/worker/`: model singleton, ffmpeg ingest, fixed prompts, bundle writer, Dockerfile with baked weights, golden test through to `bundle.zip` | `docker run ... job.json` reproduces the golden bundle on a pod |
+| M2 | Client: bundle decoder in a Web Worker, WebGL live blur, label and identity selection, timeline | plays the golden bundle over the trial clip with live toggles, on desktop and phone |
+| M3 | Topology A: FastAPI, in-process queue, poll endpoint, client served from the pod | the acceptance loop passes on a single-pod URL |
+| M4 | Client export via WebCodecs with audio, MediaRecorder fallback | exported mp4 checks in section 10 pass |
+| M5 | Topology B: Serverless handler, Redis, object storage, content-hash cache, TTL sweeper, chunk map-reduce | acceptance loop against the split deployment; 30 s clip under 3 min; scales to zero |
 
-M0 to M2 are sequential. M3 and M4 can proceed in parallel once M2 is up.
+M0 and M2 can run in parallel (M2 only needs a bundle from an existing adapter run). M1 before M3,
+M3 before M5. M4 is independent of the server work once M2 exists.
 
 ## 12. Decisions needed from the owner
 
-1. Clip limits for v1: 30 s and 720p as proposed, or longer.
-2. Audience: internal review tool (API key, no accounts) or public (needs accounts, quotas,
-   abuse handling). The plan assumes internal.
-3. GPU tier for serverless after M0 numbers: fastest, or cheapest that meets the 3-minute target.
-4. Whether `auto_blur` should exist at all in v1 given the 25 % escape rate, or whether every job
-   goes through the review gallery.
+1. Initial label set: `woman, man, child` with `person` as control, or a different list.
+2. Clip limits for v1: 30 s default, 60 s hard cap, 720p, stride 2.
+3. Web client only, or a native app consuming the same bundle from day one.
+4. Bundle retention: 24 h server-side, or delete on first download.
 5. Object storage provider for Topology B (Cloudflare R2 vs RunPod S3-compatible).
