@@ -154,6 +154,7 @@ first; it is small and has everything except the pixels.
     "labels": ["woman", "man", "child"], "control": "person",
     "config_version": "2026-09-23-5f0b3c3", "seconds": 142.3
   },
+  "masks": [{"from_f": 0, "to_f": 898, "path": "masks.bin"}],
   "identities": [
     {
       "id": 7,
@@ -210,7 +211,12 @@ been blurred and was not cannot be fixed after the video is shared.
 
 ### `masks.bin`
 
-Gzip-compressed binary. Decompress the whole file, then parse little-endian:
+`manifest.masks` lists the mask files as segments with the frame range each covers. For short
+clips there is exactly one entry, `masks.bin`. Longer jobs will ship several segments so the app
+can fetch only the range around the playhead; the format inside each file is identical, so build
+the decoder against the list, not the filename.
+
+Each segment is a gzip-compressed binary. Decompress the whole file, then parse little-endian:
 
 ```
 repeat for each processed frame, in ascending f (same order as manifest.frames):
@@ -306,3 +312,22 @@ curl -sL "$BUNDLE_URL" -o bundle.zip && unzip -l bundle.zip
 
 A sample `bundle.zip` and the clip it was made from will be provided with dev keys so the app can
 be built against real data before the service is live.
+
+## 9. Forward compatibility: what will be added, and what will not change
+
+v1 is limited to short clips by GPU time, not by the contract. These additions are planned and
+are all additive to what is documented above, so an app built against v1 keeps working:
+
+| addition | shape | what to do now |
+|---|---|---|
+| Large uploads (multi-GB) | `POST /v1/uploads` returns presigned part URLs; the app PUTs parts directly to storage, then `POST /v1/jobs {"upload_id": ...}` | keep the upload step separate from the job step in your code |
+| Longer clips | `max_seconds` becomes a per-key limit; jobs run longer, webhook becomes the primary completion signal | implement the webhook, not only polling |
+| Segmented masks | `manifest.masks` gains several entries, one per minute or so | decode from the `masks` list, never assume a single `masks.bin` |
+| Progressive results | `GET /jobs/{id}` gains `segments_ready`; segments already listed are final and never change | tolerate unknown fields in job status |
+| Append mode | `POST /v1/jobs {"mode": "append"}`, `PUT /v1/jobs/{id}/pieces/{n}`, `POST /v1/jobs/{id}/finish` for recordings uploaded while still recording | none |
+| Live streams | a separate `WebSocket /v1/streams` emitting the same per-frame mask records with provisional identities. Not feasible at current model speed; listed so the bundle format is known to be the streaming format too | none |
+
+What will not change in v1: the meaning of every field above, the mask record layout, the
+coordinate systems, and the rule that the service returns metadata and never a blurred video.
+Uploading individual frames instead of a video is not planned: it is 50 to 100 times more bytes
+than the encoded video and the worker decodes to frames on the GPU host anyway.

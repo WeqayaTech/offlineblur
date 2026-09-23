@@ -125,6 +125,7 @@ One `bundle.zip` per job, served by a signed URL.
                  "labels": ["woman","man","child"], "control": "person",
                  "new_det_thresh": 0.7, "score_threshold_detection": 0.5,
                  "seconds": 142.3, "gpu": "H100"},
+  "masks": [{"from_f": 0, "to_f": 898, "path": "masks.bin"}],
   "identities": [
     {"id": 7, "first_frame": 0, "last_frame": 611, "n_obs": 298,
      "labels": {"woman": {"coverage": 0.91, "score": 0.83},
@@ -353,7 +354,64 @@ M0 and M2 run in parallel (M2 needs only a bundle from an existing adapter run).
 before M4, M4 before M5, M5 before M6. The team can start integrating from the sample bundle as
 soon as M1 produces it, before the API is live.
 
-## 15. Decisions needed from the owner
+## 15. Growth path: longer videos, bigger uploads, streamed input
+
+v1 is scoped to short clips because of GPU time, not because of the model or the contract. This
+section records what changes when the scope grows, so nothing in v1 is built in a way that has to
+be torn out. Every step below is **additive** to the v1 contract.
+
+**The model is not the limit.** A single SAM 3 session already completes 900 frames with memory
+pruning on, and chunked sessions have flat memory at any length. Wall time is the limit: at the
+measured ~1 s/frame and stride 2, a 20-minute 1080p recording (a typical 2 GB phone file) is
+~18,000 processed frames, about 5 hours on one worker, or about 15 minutes fanned out over 20
+workers with chunk map-reduce (section 8). So "large video" is a cost and parallelism decision per
+job, and the chunk fan-out built in M6 is the mechanism. The `max_seconds` cap becomes a per-key
+setting rather than a global one.
+
+**Upload transport.** A 2 GB multipart POST through the API is the wrong path: slow, not
+resumable, and it ties up an API worker. The change is a presigned direct-to-storage upload:
+`POST /v1/uploads` returns an upload id and presigned part URLs, the app PUTs parts straight to
+object storage (resumable, parallel), then `POST /v1/jobs {"upload_id": ...}`. The v1 JSON form of
+`POST /jobs` already separates "where the video is" from "run the job", so this is a new source
+type, not a new endpoint shape. Topology B (object storage in front of the worker) is the
+prerequisite, which is why v1 is designed around it even though the demo runs on one pod.
+
+**Bundle size.** Masks grow linearly: ~0.3 MB per processed second, so a 20-minute recording is
+~180 MB of masks. The v1 manifest therefore lists masks as **segments** from day one
+(`manifest.masks: [{from_f, to_f, path}]`), with exactly one entry for short clips. Long jobs
+write one segment per minute or so, and the device fetches only the segments around the playhead.
+The `masks.bin` layout is per-frame self-delimiting, so splitting it into files changes nothing in
+the decoder.
+
+**Progressive results.** With chunk map-reduce, the reducer finalises identities in frame order,
+so segments 0 to k can be published while later chunks are still running. `GET /jobs/{id}` gains
+`segments_ready` and the device can start reviewing the first minute of a long recording before
+the last minute is processed. Identities in a published segment never change; a person who
+reappears later gets linked to their earlier id by the stitch, which only ever assigns ids forward.
+
+**Append mode (record now, process as you go).** The middle ground between "upload the whole
+file" and "stream frames": the app uploads a recording in pieces (for example 10 s mp4 segments)
+while it is still recording, and processing starts on piece 1 while piece 2 uploads. Server side
+each piece is a chunk and the boundary is stitched exactly like a chunk boundary today, using the
+tail of the previous piece as the overlap. Contract: `POST /jobs {"mode": "append"}`,
+`PUT /jobs/{id}/pieces/{n}`, `POST /jobs/{id}/finish`. This is the realistic form of "frame by
+frame upload" and it needs no model change.
+
+**True frame-by-frame or live input.** Two problems, one on each side. Transport: sending frames
+instead of a video is 50 to 100x more bytes (a JPEG per frame versus H.264) and gains nothing,
+because the worker decodes video to frames on the GPU host anyway. Model: SAM 3's streaming path
+disables its hotstart de-duplication (more false positives) and, more decisively, the measured
+~1 s/frame is 30x too slow for real time at 30 fps. So live input waits on a faster model or GPU
+generation. When it arrives, the contract is a separate `WebSocket /v1/streams` session that emits
+the same per-frame mask records the bundle uses, with provisional identities (no post-hoc stitch).
+Nothing in v1 has to change for that to be added.
+
+**What this means for v1 decisions.** Build Topology B with object storage and a real queue even
+for a demo-scale service; put `masks` as a segment list in the manifest now; keep `POST /jobs`
+source-agnostic; treat `max_seconds` as a per-key limit. None of these cost anything at short-clip
+scale and each removes a future breaking change.
+
+## 16. Decisions needed from the owner
 
 1. Initial label set: `woman, man, child` with `person` as control, or a different list.
 2. Clip limits for v1: 30 s default, 60 s hard cap, 720p, stride 2.
