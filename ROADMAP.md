@@ -54,3 +54,18 @@ eyeball of the debug video.
 3. Fix the top tracking failures that harness surfaces (id switches through occlusion, small-person
    recall) before touching classification again.
 4. Only then: firm up the selector interface and add the manual "user picks ids" selector.
+
+## Service (2026-09-23)
+
+The deployment shape is fixed in [service/PLAN.md](service/PLAN.md) and uses the terms defined
+there. In short: the GPU side runs SAM 3 once per video over a fixed label set (`woman`, `man`,
+`child`, with `person` as the control prompt) and returns a metadata bundle of canonical
+identities, masks and per-label coverage. The device does selection, live blur and export. The
+server never renders video.
+
+The "selector" layer above is what the bundle's coverages feed: the manual selector is the device's
+identity gallery, the gender selector is a label toggle plus a coverage threshold. The current
+limitation stands as measured there: tracking is strong, label-as-selector has a 25 % escape rate on
+the trial clip, so the device always shows a review group and never auto-exports from a label
+toggle alone. The research harness (`tracking/run_sam3_gender.sh` and its report and render
+scripts) remains the way we measure that number; it is not part of the service.
