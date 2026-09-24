@@ -1,9 +1,0 @@
-{
- "clip": "ali-dawah-street-interview-source.mp4",
- "labelled_by": "Claude, by eye, from the masked best-view crop strips of the RF-DETR-2XL + McByte(IoU) run (rfclip_siglip_masked/crops), 2026-09-23",
- "track_run": "rfdetr_mcb_iou",
- "rule": "confident labels only; back views, dark fragments, occluded and ambiguous tracks are left out rather than guessed. Some people are split over two tracks (3/26, 14/41, 35/55) and are labelled on both.",
- "woman": [1, 5, 14, 15, 33, 35, 41, 53, 55, 56, 58],
- "man": [0, 3, 11, 17, 19, 21, 22, 26, 27, 28, 30, 32, 38, 39, 40, 54, 57],
- "unlabelled": [2, 4, 6, 7, 8, 9, 10, 12, 13, 16, 18, 20, 23, 24, 25, 29, 31, 34, 36, 37, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 59]
-}

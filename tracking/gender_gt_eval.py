@@ -2,8 +2,8 @@
 """Score any pipeline's blur against hand-labelled people: blurred share of each woman's frames, false-blur
 share of each man's frames. Pipeline-agnostic: it only reads the masks each pipeline would pixelate.
 
-Ground truth is labelled on one run's tracks (`--gt`, e.g. results/sam31/gt_gender_ali_rfdetr_tracks.json,
-labelled on RF-DETR+McByte tracks) and carried onto a reference person layer (`--reference`, a masks.jsonl
+Ground truth is labelled on one run's tracks (`--gt`: a hand-label JSON {woman: [tid], man: [tid]}, kept locally
+and not versioned, e.g. labelled on RF-DETR+McByte tracks) and carried onto a reference person layer (`--reference`, a masks.jsonl
 with `--reference-prompt` person, e.g. the SAM 3.1 tracked run) by per-frame mask IoU majority. The
 reference layer defines WHICH frames count for a person, so a pipeline is also charged for frames its own
 detector missed. A frame is "blurred" when the union of the pipeline's blur masks covers >= `--cover` of

@@ -8,6 +8,8 @@ breaks into several, and how often a tracked person has no box on a frame inside
   holes             frames inside a track's life with no box (the mask blinks out there)
   likely_fragments  a track that starts within `--rebirth-window` frames after another ended, at the same place
                     (IoU >= 0.3 or centres closer than half the box height): one person, two ids
+  suspect_swaps     the opposite error: inside one track, a box that jumps within <= 3 frames to a place it does not
+                    overlap (IoU < 0.1) and more than 0.75 box heights away — usually the id moved to another person
 
     python3 track_quality.py run_a/tracks.jsonl run_b/tracks.jsonl ...
 """
@@ -39,7 +41,7 @@ def quality(path, window):
     for line in open(path):
         r = json.loads(line)
         tr[r["tid"]][r["f"]] = (r["box"], r.get("filled", False))
-    lives, holes, det_frames, filled = [], 0, 0, 0
+    lives, holes, det_frames, filled, swaps = [], 0, 0, 0, 0
     ends, starts = [], []
     for tid, fr in tr.items():
         fs = sorted(fr)
@@ -48,6 +50,13 @@ def quality(path, window):
         holes += life - len(fs)
         det_frames += sum(1 for f in fs if not fr[f][1])
         filled += sum(1 for f in fs if fr[f][1])
+        for f0, f1 in zip(fs, fs[1:]):
+            if f1 - f0 <= 3 and not fr[f1][1]:
+                a_, b_ = fr[f0][0], fr[f1][0]
+                h = max(a_[3] - a_[1], b_[3] - b_[1], 1)
+                d = (((a_[0] + a_[2]) - (b_[0] + b_[2])) ** 2 + ((a_[1] + a_[3]) - (b_[1] + b_[3])) ** 2) ** 0.5 / 2
+                if iou(a_, b_) < 0.1 and d > 0.75 * h:
+                    swaps += 1
         ends.append((fs[-1], fr[fs[-1]][0], tid))
         starts.append((fs[0], fr[fs[0]][0], tid))
     first = min(s[0] for s in starts)
@@ -60,7 +69,7 @@ def quality(path, window):
     covered = sum(lives)
     return {"tracks": len(tr), "median_life": statistics.median(lives), "short_tracks_<25f": sum(l < 25 for l in lives),
             "holes": holes, "hole_share": round(holes / covered, 3), "gap_filled_frames": filled,
-            "likely_fragments": frags}
+            "likely_fragments": frags, "suspect_swaps": swaps}
 
 
 if __name__ == "__main__":

@@ -1,7 +1,8 @@
 # Results by pipeline — visual comparison index
 
-One folder per pipeline, in the order they were tried. Inside each: the videos, `PIPELINE.md` (what ran, where,
-settings, speed, accuracy) and `metrics/` (copies of that run's JSON). Videos use the same names everywhere, so the
+One folder per pipeline, in the order they were tried. Each has a `PIPELINE.md` brief (what ran, where, settings,
+speed, accuracy). Only the briefs are versioned: the videos and the `metrics/` folders (run JSON, track dumps,
+hand labels) stay on the machine that produced them. Videos use the same names everywhere, so the
 same file across folders is directly comparable:
 
 - `labels_masks_ids*.mp4` — unblurred, masks + ids + gender (two renderers; see each PIPELINE.md for the legend)
@@ -20,10 +21,12 @@ Same clip everywhere: `ali-dawah-street-interview-source.mp4` (300 frames, 1280x
 | 06 RF-DETR + McByte + CLIP (scripts) | RF-DETR-Seg 2XL | McByte box | CLIP ViT-L/14-336, K=10, ≥ 0.25 | L4 | 11.4 Hz | 3.1 GB | 0.696 | 0.029 |
 | 07 same, fast in-memory | RF-DETR-Seg 2XL | McByte box | CLIP ViT-L/14-336, K=10, ≥ 0.25 | RTX PRO 6000 | **85–93 Hz** | 4.7 GB | ≈ 06 | ≈ 06 |
 | 08 fast, McByte threshold sweep | RF-DETR-Seg 2XL | McByte box, 0.5→0.2 | CLIP | RTX PRO 6000 | 72–86 Hz | 4.8 GB | not scored | not scored |
+| 09 fast, lost tracks kept 4 s | RF-DETR-Seg 2XL | McByte box, lost 1 s → 4 s | CLIP | L4 | 19.5–20 Hz | 4.7 GB | not scored | not scored |
+| 10 fast, association tuning (4 s) | RF-DETR-Seg 2XL | McByte, buffered IoU 0.5 + 2nd round 0.3 | CLIP | L4 | 20 Hz | 4.7 GB | not scored | not scored |
 
 Rates are frames per second of processing (1 / compute per frame; 07–08 are end to end incl. decode, blur and
-encode, excluding model load). "Women blurred" / "men false-blur" are on the 21 hand-labelled people
-(`gt_gender_ali_rfdetr_tracks.json`, evaluations `gt_eval*.json` here).
+encode, excluding model load). "Women blurred" / "men false-blur" are on the 21 hand-labelled people (labels and
+evaluations kept locally with the metrics, scored with `tracking/gender_gt_eval.py`).
 
 Suggested comparisons:
 - **Tracking quality**: `01/person_tracking_sam3_left_vs_sam31_right.mp4` vs `07/labels_masks_ids.mp4` vs
@@ -31,5 +34,7 @@ Suggested comparisons:
 - **Gender decision**: `02/labels_masks_ids.mp4` (prompt, flips per frame) vs `04/labels_masks_ids.mp4` (per-track
   vote) vs `07/labels_masks_ids.mp4` (per-track CLIP).
 - **The product**: every `blur_side_by_side.mp4`, especially 02 vs 05 vs 07.
+- **Occlusion handling**: `09/ids_1s_left_vs_4s_right.mp4` (longer memory alone barely helps) vs
+  `10/grid_2x2_*.mp4` (buffered-IoU matching halves identity breaks).
 
 Full write-up with charts: https://claude.ai/artifact/LCjvGwqZ9ZFTy333GXRGkD (tracking/reports/pipeline_benchmarks.html).

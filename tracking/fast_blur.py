@@ -95,7 +95,17 @@ def main():
                     help="give McByte the frame so its camera-motion compensation runs (off without a frame)")
     ap.add_argument("--lost-buffer", type=int, default=30,
                     help="McByte lost_track_buffer, in 30 fps frames (rescaled: 30 -> 25 frames = 1.0 s at 25 fps)")
+    ap.add_argument("--lost-seconds", type=float, default=None,
+                    help="keep a lost (e.g. occluded) track alive this many seconds; overrides --lost-buffer. McByte "
+                         "counts its buffer in 30 fps frames and rescales to the video fps, so this sets buffer = s * 30")
     ap.add_argument("--activation", type=float, default=None, help="new-track threshold (default: --high-conf)")
+    ap.add_argument("--iou", default="iou", choices=["iou", "biou", "giou", "diou"],
+                    help="box similarity for association; biou = buffered IoU (boxes enlarged by --biou-buffer)")
+    ap.add_argument("--biou-buffer", type=float, default=0.3)
+    ap.add_argument("--assoc1", type=float, default=0.1, help="min similarity, 1st association (high-score dets)")
+    ap.add_argument("--assoc2", type=float, default=0.5, help="min similarity, 2nd association (low-score dets)")
+    ap.add_argument("--assoc-unconfirmed", type=float, default=0.3, help="min similarity for unconfirmed tracks")
+    ap.add_argument("--dump-dets", default=None, help="write per-frame person boxes+scores jsonl (for mcbyte_sweep.py)")
     ap.add_argument("--fill-gaps", type=int, default=0,
                     help="bridge detection holes up to N frames inside a track (box interpolated, nearest mask)")
     ap.add_argument("--dump-tracks", default=None, help="write {f, tid, box, filled} jsonl (untimed)")
@@ -143,7 +153,14 @@ def main():
             txt.append(e.mean(0) / e.mean(0).norm())
         txt = torch.stack(txt)
         scale = clip.logit_scale.exp().float()
-    tracker = McByteTracker(lost_track_buffer=a.lost_buffer, frame_rate=fps,
+    if a.lost_seconds is not None:
+        a.lost_buffer = int(round(a.lost_seconds * 30))
+    lost_frames = int(np.ceil(fps / 30.0 * a.lost_buffer)) if a.lost_buffer > 0 else 0   # McByte's own rescaling
+    from trackers.utils.iou import BIoU, DIoU, GIoU, IoU
+    iou_obj = {"iou": IoU(), "biou": BIoU(buffer_ratio=a.biou_buffer), "giou": GIoU(), "diou": DIoU()}[a.iou]
+    tracker = McByteTracker(lost_track_buffer=a.lost_buffer, frame_rate=fps, iou=iou_obj,
+                            minimum_iou_threshold_first_assoc=a.assoc1, minimum_iou_threshold_second_assoc=a.assoc2,
+                            minimum_iou_threshold_unconfirmed_assoc=a.assoc_unconfirmed,
                             track_activation_threshold=a.activation if a.activation is not None else a.high_conf,
                             high_conf_det_threshold=a.high_conf, enable_mask_manager=False)
     # warm-up at the fixed batch size (compiled graph)
@@ -163,6 +180,7 @@ def main():
     cands = defaultdict(dict)                 # tid -> {time window: (quality, f, crop uint8 [3,S,S] on GPU)}
     last_seen = {}
     n_det = 0
+    dets_log = open(a.dump_dets, "w") if a.dump_dets else None
     decode_s = 0.0
     f_base = 0
     done = False
@@ -207,6 +225,9 @@ def main():
             f = f_base + b
             bx, sc, mk = per_frame[b]
             n_det += len(bx)
+            if dets_log is not None:
+                dets_log.write(json.dumps({"f": f, "boxes": np.round(bx, 1).tolist(),
+                                           "scores": np.round(sc, 4).tolist()}) + "\n")
             with T("mcbyte"):
                 res_d = tracker.update(sv.Detections(xyxy=bx.astype(np.float32), confidence=sc.astype(np.float32),
                                                      data={"i": np.arange(len(bx))}),
@@ -241,6 +262,8 @@ def main():
         f_base += nb
     stop.set()
     pass1_s = time.perf_counter() - t_pass1
+    if dets_log is not None:
+        dets_log.close()
     n_frames = f_base
 
     # ---------------- classify: K spread views per track, one batched CLIP pass
@@ -334,7 +357,9 @@ def main():
     meta = {
         "video": a.video, "frames": n_frames, "size": [W, H], "gpu": torch.cuda.get_device_name(0),
         "rf_model": a.rf_model, "resolution": res, "batch": a.batch, "encoder": a.encoder, "cmc": a.cmc,
-        "high_conf": a.high_conf, "threshold": a.threshold, "lost_buffer": a.lost_buffer, "activation": a.activation, "fill_gaps": a.fill_gaps, "filled": len(filled),
+        "high_conf": a.high_conf, "threshold": a.threshold, "lost_buffer": a.lost_buffer,
+        "lost_frames": lost_frames, "iou": a.iou, "biou_buffer": a.biou_buffer, "assoc1": a.assoc1,
+        "assoc2": a.assoc2, "assoc_unconfirmed": a.assoc_unconfirmed, "lost_seconds": round(lost_frames / fps, 2), "fps": round(fps, 3), "activation": a.activation, "fill_gaps": a.fill_gaps, "filled": len(filled),
         "clip": f"{a.clip_model} ({a.clip_pretrained})", "tracks": len(labels),
         "women": len(women), "crops": len(views), "persons": n_det, "load_s": round(load_s, 1),
         "pass1_s": round(pass1_s, 2), "pass2_s": round(pass2_s, 2), "total_s": round(total, 2),

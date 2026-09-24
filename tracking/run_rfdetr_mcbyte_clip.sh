@@ -9,7 +9,7 @@
 #      VENV=/root/venv_mcb  MAXS=0
 # Measured on the 12 s trial clip, L4: detector 42 ms/frame, McByte (IoU) <1 s total, CLIP 11 s for 418 crops.
 # BLUR_MIN 0.25 matched oracle labels on the 21 hand-labelled people of that clip — tuned on it, so
-# re-check on new footage (results/sam31/gt_gender_ali_rfdetr_tracks.json + gender_gt_eval.py).
+# re-check on new footage with hand labels + gender_gt_eval.py (labels are kept locally, not versioned).
 set -eo pipefail
 V="$1"; [ -f "$V" ] || { echo "usage: bash run_rfdetr_mcbyte_clip.sh <video> [out_root]"; exit 1; }
 . "${VENV:-/root/venv_mcb}/bin/activate"
