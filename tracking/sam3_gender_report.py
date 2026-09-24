@@ -101,7 +101,8 @@ def main():
     # ---- per-identity coverage: for each control (person) identity, which concept covers its frames
     seen = defaultdict(int)                      # control tid -> frames it appears in
     cov = defaultdict(lambda: defaultdict(int))  # control tid -> prompt -> frames covered
-    spans = defaultdict(lambda: [10**9, -1])     # any tid -> [first frame, last frame]
+    spans = defaultdict(lambda: [10**9, -1])     # (prompt, tid) -> [first frame, last frame]; keyed by
+                                                 # prompt too, since two runs merged into one file can reuse ids
     obs = defaultdict(int)                       # prompt -> observations
     conflict_frames, blur_frames_total = 0, 0
 
@@ -110,7 +111,7 @@ def main():
         for p, items in byp.items():
             obs[p] += len(items)
             for tid, _ in items:
-                s = spans[tid]
+                s = spans[(p, tid)]
                 s[0], s[1] = min(s[0], f), max(s[1], f)
 
         ctrl = byp.get(CT, [])
@@ -147,7 +148,7 @@ def main():
         else:
             v = "ungendered"   # no gender concept ever fired on this person -> ships unblurred
         counts[v] += 1
-        rec = {"frames": nf, "first": spans[tid][0], "last": spans[tid][1]}
+        rec = {"frames": nf, "first": spans[(CT, tid)][0], "last": spans[(CT, tid)][1]}
         for p in MEASURED:
             rec[f"frac_{p}"] = round(cov[tid].get(p, 0) / nf, 3)
         rec["verdict"] = v
@@ -162,7 +163,8 @@ def main():
 
     n_ctrl = len(seen)
     escapes = counts["ungendered"] + counts["flicker"]
-    spans_len = {p: [spans[t][1] - spans[t][0] + 1 for t in ts if t in spans] for p, ts in tids.items()}
+    spans_len = {p: [spans[(p, t)][1] - spans[(p, t)][0] + 1 for t in ts if (p, t) in spans]
+                 for p, ts in tids.items()}
     metrics = {
         "clip": fm.get("video"), "n_frames": fm.get("n_frames"), "n_masks": n_masks,
         "prompts": {p: {"ids": len(t), "obs": obs.get(p, 0),

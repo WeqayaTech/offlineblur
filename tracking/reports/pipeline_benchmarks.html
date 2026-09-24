@@ -1,0 +1,352 @@
+<title>OfflineBlur Pipeline Benchmarks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#F4F6F4; --panel:#FFFFFF; --ink:#17211D; --muted:#5E6A63; --rule:#D6DDD8; --rule-soft:#E6EBE7;
+  --accent:#1C6B5A; --accent-soft:#E1EFEA; --good:#2E7A3E; --good-soft:#E3F1E4; --bad:#B2521D; --bad-soft:#F7E6DB;
+  --warn:#8A6A10; --warn-soft:#F4EDD4; --bar:#1C6B5A; --bar-alt:#9FB8AE;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#101513; --panel:#161D1A; --ink:#E3EAE5; --muted:#98A59D; --rule:#2B3530; --rule-soft:#222B27;
+    --accent:#5CC0A2; --accent-soft:#1B2E28; --good:#78C487; --good-soft:#1C2B1F; --bad:#E58C5A; --bad-soft:#35231A;
+    --warn:#D9B955; --warn-soft:#2E2914; --bar:#5CC0A2; --bar-alt:#3F5C52;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#101513; --panel:#161D1A; --ink:#E3EAE5; --muted:#98A59D; --rule:#2B3530; --rule-soft:#222B27;
+  --accent:#5CC0A2; --accent-soft:#1B2E28; --good:#78C487; --good-soft:#1C2B1F; --bad:#E58C5A; --bad-soft:#35231A;
+  --warn:#D9B955; --warn-soft:#2E2914; --bar:#5CC0A2; --bar-alt:#3F5C52;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:20px;padding-block:36px 64px;display:flex;flex-direction:column;gap:44px}
+h1,h2,h3{font-family:var(--cond);text-wrap:balance;margin:0;letter-spacing:-.005em}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;line-height:1.1}
+h2{font-size:22px;font-weight:600}
+h3{font-size:16px;font-weight:600}
+p{margin:0;max-width:68ch}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:17px;color:var(--ink);max-width:70ch}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:500}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:1px solid var(--rule);padding-bottom:28px}
+section{display:flex;flex-direction:column;gap:16px}
+.sec-head{display:flex;flex-direction:column;gap:6px}
+.sec-head p{color:var(--muted)}
+.verdict{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}
+.v{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.v .num{font-family:var(--mono);font-size:26px;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums}
+.v p{font-size:14px;color:var(--muted)}
+.v p b{color:var(--ink);font-weight:600}
+.scroll{overflow-x:auto;border:1px solid var(--rule);border-radius:6px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+thead th{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--ground);border-bottom:1px solid var(--rule);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.m{font-family:var(--mono);font-size:12.5px}
+.name{font-weight:600}
+.sub{display:block;color:var(--muted);font-size:12.5px;font-weight:400;margin-top:2px}
+tr.group td{background:var(--ground);font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:12px}
+tr.pick td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.chip{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 7px;border-radius:3px;white-space:nowrap}
+.good{background:var(--good-soft);color:var(--good)}
+.bad{background:var(--bad-soft);color:var(--bad)}
+.warn{background:var(--warn-soft);color:var(--warn)}
+.acc{background:var(--accent-soft);color:var(--accent)}
+.roles td{min-width:150px}
+.roles td.role-shared{color:var(--muted);font-style:italic}
+.chart{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:14px 12px 8px}
+.chart svg{display:block;width:100%;height:auto}
+.chart .lbl{fill:var(--ink);font-family:var(--sans);font-size:13px}
+.chart .val{fill:var(--muted);font-family:var(--mono);font-size:12px}
+.chart .tick{fill:var(--muted);font-family:var(--mono);font-size:11px}
+.chart .grid{stroke:var(--rule-soft);stroke-width:1}
+.chart .rt{stroke:var(--bad);stroke-width:1;stroke-dasharray:3 3}
+.note{font-size:13px;color:var(--muted)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:72ch}
+ul.plain li::marker{color:var(--accent)}
+code{font-family:var(--mono);font-size:12.5px;background:var(--rule-soft);padding:1px 5px;border-radius:3px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12.5px;color:var(--muted);align-items:center}
+@media (max-width:560px){ .wrap{padding-inline:16px} th,td{padding:8px 9px} }
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">OfflineBlur · tracking/ · branch sam3.1/test-profiling · 2026-09-23</span>
+  <h1>Who gets blurred, how fast, on which GPU</h1>
+  <p class="lede">Every pipeline tried for blurring women in street video, split into its four jobs: <b>find people</b> (detector), <b>cut them out pixel-exactly</b> (segmentation mask), <b>keep who-is-who</b> (tracker) and <b>decide woman or not</b> (classifier). Each is timed and scored on the same clip.</p>
+  <div class="meta">
+    <span>clip <b>ali-dawah street interview</b> · 300 frames · 1280×720 · 25 fps · 12 s · ~60 people</span>
+    <span>GPUs <b>NVIDIA L4 22 GB (Ada)</b> for the pipeline comparison, <b>RTX PRO 6000 Blackwell 96 GB</b> for the fast pipeline · torch 2.8.0+cu128</span>
+    <span>ground truth <b>21 hand-labelled people</b> (11 women, 10 men)</span>
+  </div>
+</header>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Verdict</span>
+    <h2>What the numbers say</h2>
+  </div>
+  <div class="verdict">
+    <div class="v"><span class="num">93 Hz</span><p>On an <b>RTX PRO 6000</b>, the fast RF-DETR + McByte + CLIP pipeline goes from video in to blurred video out at 85–93 Hz (the 12 s clip in 3.5 s), or 130 Hz with XLarge and 5 crops per person (accuracy not yet checked). Scored on the L4, it blurs 70% of women's frames, with 2.9% false blur on men and no woman missed entirely.</p></div>
+    <div class="v"><span class="num">80% / 21%</span><p><b>SAM 3 tracked</b> still blurs the most of women's frames (80%), but it also blurs men in 21% of their frames, because "woman" and "man" masks land on the same person 45% of the time.</p></div>
+    <div class="v"><span class="num">3.9 Hz</span><p>is the ceiling of any SAM 3.1-based pipeline on an L4. Its detector alone costs 260 ms per frame, and 194 ms of that is the ViT backbone; its own tracker adds about 177 ms on top. RF-DETR-Seg 2XLarge does the same detect-and-mask job in 44 ms.</p></div>
+    <div class="v"><span class="num">= oracle</span><p>At a threshold of 0.25, the <b>per-track CLIP vote</b> scored the same as the correct hand labels on this clip, so the remaining gap is <b>detection and tracking coverage</b>, not gender. (That threshold was tuned on the same 21 people.)</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">RTX PRO 6000 Blackwell 96 GB · 48 vCPU · video in → blurred video out</span>
+    <h2>The fast pipeline: speed on one big GPU</h2>
+    <p><code>tracking/fast_blur.py</code> runs RF-DETR-Seg + McByte + CLIP in one process: decode, detect, track, classify, blur and encode. It skips RF-DETR's full-resolution mask output and keeps masks on the GPU; frames are batched 8 at a time. Rates cover all of that; model loading (6.4–7 s) is listed separately. The 12 s clip is 300 frames and the 48 s video is 1,200.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Configuration</th><th class="n">End to end</th><th class="n">12 s clip</th><th class="n">48 s video</th><th class="n">Detect + track pass</th><th class="n">Peak GPU</th><th>Accuracy</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td class="name">RF-DETR 2XLarge · 10 crops/person<span class="sub">validated setup · batch 8 · 3 repeats each, ±1%</span></td><td class="n">85 / 93 Hz</td><td class="n">3.5 s</td><td class="n">12.9 s</td><td class="n">138–152 Hz</td><td class="n">4.7–5.4 GB</td><td><span class="chip good">matches validated pipeline</span></td></tr>
+        <tr><td class="name">2XLarge · 5 crops/person</td><td class="n">102 Hz</td><td class="n">—</td><td class="n">11.8 s</td><td class="n">150 Hz</td><td class="n">5.1 GB</td><td><span class="chip warn">not yet checked</span></td></tr>
+        <tr><td class="name">XLarge · 10 crops/person</td><td class="n">97 / 116 Hz</td><td class="n">3.1 s</td><td class="n">10.4 s</td><td class="n">183–195 Hz</td><td class="n">4.6–5.1 GB</td><td><span class="chip warn">fewer tracks; not checked</span></td></tr>
+        <tr><td class="name">XLarge · 5 crops/person</td><td class="n">130 Hz</td><td class="n">—</td><td class="n">9.2 s</td><td class="n">200 Hz</td><td class="n">4.9 GB</td><td><span class="chip warn">not yet checked</span></td></tr>
+        <tr><td class="name">2XLarge, batch 1 / 4 / 16</td><td class="n">69 / 78 / 78 Hz</td><td class="n">4.4 / 3.8 / 3.9 s</td><td class="n">—</td><td class="n">107 / 137 / 134 Hz</td><td class="n">4.5–5.0 GB</td><td>batch 8 is the sweet spot</td></tr>
+        <tr><td class="name">2 / 4 videos at once (2XLarge)</td><td class="n">98 / 104 Hz total</td><td class="n">—</td><td class="n">—</td><td class="n">161 / 172 Hz total</td><td class="n">5.4 GB each</td><td>GPU is saturated at ~105 Hz</td></tr>
+        <tr><td class="name">Earlier scripts, same pod<span class="sub">predict() + masks written to disk</span></td><td class="n">~14 Hz</td><td class="n">~22 s</td><td class="n">—</td><td class="n">—</td><td class="n">3.1 GB</td><td>validated on the L4</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">End to end is shown as 12 s clip / 48 s video where both were run; the longer video amortizes the classifier and scores slightly higher. CPU video encoding (x264) was as fast as the GPU encoder (NVENC) on this pod.</p>
+
+  <div class="cols">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Stage · validated setup</th><th class="n">ms / frame</th><th class="n">Rate</th></tr></thead>
+        <tbody>
+          <tr><td>Video decode (background thread, overlapped)</td><td class="n">3.1</td><td class="n">~320 Hz</td></tr>
+          <tr><td>Upload + resize + normalise</td><td class="n">0.2</td><td class="n">—</td></tr>
+          <tr><td>RF-DETR 2XLarge forward, batch 8, FP16</td><td class="n">4.5–4.8</td><td class="n">~210 Hz</td></tr>
+          <tr><td>RF-DETR XLarge forward, batch 8, FP16</td><td class="n">3.1–3.3</td><td class="n">~310 Hz</td></tr>
+          <tr><td>Post-processing (person filter, boxes)</td><td class="n">0.1</td><td class="n">—</td></tr>
+          <tr><td>McByte, box overlap</td><td class="n">0.8</td><td class="n">~1,200 Hz</td></tr>
+          <tr><td>Mask crops + CLIP views</td><td class="n">0.9</td><td class="n">—</td></tr>
+          <tr><td>CLIP ViT-L/14-336 (10 crops/person, this clip)</td><td class="n">2.9–3.3</td><td class="n">≈ 7 ms per crop</td></tr>
+          <tr><td>GPU pixelation of women's masks</td><td class="n">0.8–1.0</td><td class="n">—</td></tr>
+          <tr><td>Encode (x264, in a writer thread)</td><td class="n">~0.1 wait</td><td class="n">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Tracker option · 12 s clip</th><th class="n">End to end</th><th class="n">Tracked / frame</th><th class="n">Tracks</th></tr></thead>
+        <tbody>
+          <tr><td>Current: high-conf 0.5, lost tracks kept 1.0 s</td><td class="n">86 Hz</td><td class="n">13</td><td class="n">61</td></tr>
+          <tr><td>+ camera-motion compensation</td><td class="n">70 Hz</td><td class="n">13</td><td class="n">61</td></tr>
+          <tr><td>high-conf 0.4, lost tracks kept 2.5 s</td><td class="n">82 Hz</td><td class="n">15</td><td class="n">71</td></tr>
+          <tr><td>high-conf 0.3</td><td class="n">78 Hz</td><td class="n">16</td><td class="n">81</td></tr>
+          <tr><td>high-conf 0.25</td><td class="n">74 Hz</td><td class="n">17</td><td class="n">91</td></tr>
+          <tr><td>high-conf 0.2</td><td class="n">72 Hz</td><td class="n">18</td><td class="n">96</td></tr>
+          <tr><td><span class="sub" style="margin:0">SAM 3.1 / SAM 3 tracked, for reference</span></td><td class="n">—</td><td class="n">22 / 24</td><td class="n">66 / 58</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="note">Lower thresholds track more background people but also create short fragment tracks, and more of them get called "woman" (24 → 52 tracks at 0.2). The right threshold needs a hand-labelled check on this pod. Camera-motion compensation changed nothing on this clip and cost 2.5 ms per frame.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Organisation</span>
+    <h2>Which model does which job</h2>
+    <p>SAM uses its text prompt as the classifier, so one model does several jobs. The two-stage pipelines give each job its own component, which is what lets the jobs be timed and swapped separately.</p>
+  </div>
+  <div class="scroll">
+    <table class="roles">
+      <thead><tr><th>Pipeline</th><th>Detector</th><th>Segmentation mask</th><th>Tracker</th><th>Classifier (woman?)</th></tr></thead>
+      <tbody>
+        <tr><td class="name">SAM 3 tracked</td><td>SAM 3 detector, prompts woman / man / person</td><td class="role-shared">same model: mask head</td><td class="role-shared">same model: SAM 2-style memory tracker</td><td class="role-shared">the prompt itself: a "woman" mask = woman</td></tr>
+        <tr><td class="name">SAM 3.1 tracked</td><td>SAM 3.1 detector, one prompt per session</td><td class="role-shared">same model</td><td class="role-shared">same model: Object Multiplex tracker</td><td class="role-shared">the prompt itself</td></tr>
+        <tr><td class="name">SAM 3.1 det + McByte</td><td>SAM 3.1 detector, woman / man / child sharing one backbone pass</td><td class="role-shared">same model</td><td>McByte (box overlap; SAM + Cutie masks optional)</td><td>vote per track: woman if its share of the gender score ≥ 0.4</td></tr>
+        <tr class="pick"><td class="name">RF-DETR + McByte + CLIP</td><td>RF-DETR-Seg 2XLarge, COCO "person"</td><td class="role-shared">same model: instance mask head</td><td>McByte (box overlap)</td><td>OpenCLIP ViT-L/14-336 on the 10 best crops of each track; woman if P(woman)+P(girl) ≥ 0.25</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">End to end · L4</span>
+    <h2>Processing rate per pipeline</h2>
+    <p>Frames processed per second of GPU compute. Model loading, video decoding and the benchmark's own mask-to-disk encoding are excluded. The dashed line is real time for 25 fps video.</p>
+  </div>
+  <div class="chart" role="img" aria-label="Horizontal bar chart of processing rate in frames per second: RF-DETR plus McByte plus CLIP 11.4 Hz, RF-DETR plus McByte plus SigLIP 8.8 Hz, SAM 3.1 detector only 3.9 Hz, SAM 3.1 detector plus McByte box-overlap 2.7 Hz, RF-DETR plus McByte masks plus CLIP 2.7 Hz, SAM 3.1 detector plus McByte masks 1.35 Hz, SAM 3.1 tracked 0.69 Hz, SAM 3 tracked 0.18 Hz. Real time for 25 fps video is 25 Hz.">
+    <svg viewBox="0 0 760 300">
+      <!-- scale: 0..25 Hz over x = 300..720, 16.8 px per Hz -->
+      <line class="grid" x1="300" y1="6" x2="300" y2="268"/>
+      <line class="grid" x1="384" y1="6" x2="384" y2="268"/>
+      <line class="grid" x1="468" y1="6" x2="468" y2="268"/>
+      <line class="grid" x1="552" y1="6" x2="552" y2="268"/>
+      <line class="grid" x1="636" y1="6" x2="636" y2="268"/>
+      <line class="rt" x1="720" y1="6" x2="720" y2="268"/>
+      <text class="tick" x="300" y="286" text-anchor="middle">0 Hz</text>
+      <text class="tick" x="384" y="286" text-anchor="middle">5</text>
+      <text class="tick" x="468" y="286" text-anchor="middle">10</text>
+      <text class="tick" x="552" y="286" text-anchor="middle">15</text>
+      <text class="tick" x="636" y="286" text-anchor="middle">20</text>
+      <text class="tick" x="720" y="286" text-anchor="end">25 · real time</text>
+
+      <text class="lbl" x="290" y="27" text-anchor="end" font-weight="600">RF-DETR + McByte + CLIP</text>
+      <rect x="300" y="14" width="191.5" height="19" fill="var(--bar)"/>
+      <text class="val" x="498" y="28">11.4 Hz · 88 ms</text>
+
+      <text class="lbl" x="290" y="59" text-anchor="end">RF-DETR + McByte + SigLIP</text>
+      <rect x="300" y="46" width="147.8" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="454" y="60">8.8 Hz · 114 ms</text>
+
+      <text class="lbl" x="290" y="91" text-anchor="end">SAM 3.1 detector only (woman)</text>
+      <rect x="300" y="78" width="65.5" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="372" y="92">3.9 Hz · 259 ms</text>
+
+      <text class="lbl" x="290" y="123" text-anchor="end">SAM 3.1 det + McByte box-overlap</text>
+      <rect x="300" y="110" width="45.4" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="352" y="124">2.7 Hz · 373 ms</text>
+
+      <text class="lbl" x="290" y="155" text-anchor="end">RF-DETR + McByte masks + CLIP</text>
+      <rect x="300" y="142" width="45.4" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="352" y="156">2.7 Hz · 371 ms</text>
+
+      <text class="lbl" x="290" y="187" text-anchor="end">SAM 3.1 det + McByte masks</text>
+      <rect x="300" y="174" width="22.7" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="329" y="188">1.35 Hz · 742 ms</text>
+
+      <text class="lbl" x="290" y="219" text-anchor="end">SAM 3.1 tracked, 3 prompts</text>
+      <rect x="300" y="206" width="11.6" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="318" y="220">0.69 Hz · 1.46 s</text>
+
+      <text class="lbl" x="290" y="251" text-anchor="end">SAM 3 tracked, 3 prompts</text>
+      <rect x="300" y="238" width="3" height="19" fill="var(--bar-alt)"/>
+      <text class="val" x="310" y="252">0.18 Hz · 5.63 s</text>
+    </svg>
+  </div>
+
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th>Pipeline</th><th class="n">Detector + mask</th><th class="n">Tracker</th><th class="n">Classifier</th><th class="n">Total / frame</th><th class="n">Rate</th><th class="n">As run</th><th class="n">Peak GPU</th><th class="n">Women blurred</th><th class="n">Men false-blur</th>
+      </tr></thead>
+      <tbody>
+        <tr><td class="name">SAM 3 tracked<span class="sub">transformers 5.17 · woman,man,person in one session · state on CPU</span></td><td class="n" colspan="3" style="text-align:center">one model</td><td class="n">5.63 s</td><td class="n">0.18 Hz</td><td class="n">0.18 Hz</td><td class="n">16.4 GB</td><td class="n"><span class="chip good">0.799</span></td><td class="n"><span class="chip bad">0.214</span></td></tr>
+        <tr><td class="name">SAM 3.1 tracked<span class="sub">sam3 repo · one session per prompt (436 + 480 + 542 ms)</span></td><td class="n" colspan="3" style="text-align:center">one model</td><td class="n">1.46 s</td><td class="n">0.69 Hz</td><td class="n">0.62 Hz</td><td class="n">16.2 GB</td><td class="n"><span class="chip warn">0.737</span></td><td class="n"><span class="chip bad">0.168</span></td></tr>
+        <tr><td class="name">SAM 3.1 detector only<span class="sub">woman prompt, no tracking, flickers</span></td><td class="n">259 ms</td><td class="n">—</td><td class="n">—</td><td class="n">259 ms</td><td class="n">3.9 Hz</td><td class="n">3.7 Hz</td><td class="n">8.1 GB</td><td class="n"><span class="chip warn">0.743</span></td><td class="n"><span class="chip warn">0.099</span></td></tr>
+        <tr><td class="name">SAM 3.1 det + McByte masks<span class="sub">woman,man,child · SAM ViT-B + Cutie · argmax vote</span></td><td class="n">369 ms</td><td class="n">371 ms</td><td class="n">vote, ~0</td><td class="n">742 ms</td><td class="n">1.35 Hz</td><td class="n">1.28 Hz</td><td class="n">8.3 / 3.3 GB</td><td class="n"><span class="chip warn">0.728</span></td><td class="n"><span class="chip good">0.026</span></td></tr>
+        <tr><td class="name">SAM 3.1 det + McByte box-overlap<span class="sub">woman share ≥ 0.4 vote</span></td><td class="n">369 ms</td><td class="n">4 ms</td><td class="n">vote, ~0</td><td class="n">373 ms</td><td class="n">2.7 Hz</td><td class="n">2.5 Hz</td><td class="n">8.3 GB</td><td class="n"><span class="chip warn">0.731</span></td><td class="n"><span class="chip good">0.039</span></td></tr>
+        <tr class="pick"><td class="name">RF-DETR + McByte + CLIP<span class="sub">2XLarge fp16 · box-overlap · ViT-L/14-336, K=10, 0.25</span></td><td class="n">44 ms</td><td class="n">3 ms</td><td class="n">41 ms*</td><td class="n">88 ms</td><td class="n">11.4 Hz</td><td class="n">8.3 Hz</td><td class="n">3.1 GB</td><td class="n"><span class="chip warn">0.696</span></td><td class="n"><span class="chip good">0.029</span></td></tr>
+        <tr><td class="name">RF-DETR + McByte masks + CLIP<span class="sub">McByte SAM + Cutie</span></td><td class="n">44 ms</td><td class="n">274 ms</td><td class="n">53 ms*</td><td class="n">371 ms</td><td class="n">2.7 Hz</td><td class="n">2.4 Hz</td><td class="n">3.2 GB</td><td class="n"><span class="chip warn">0.719</span></td><td class="n"><span class="chip good">0.048</span></td></tr>
+        <tr><td class="name">RF-DETR + McByte + SigLIP<span class="sub">ViT-SO400M-14-SigLIP-384, 0.4</span></td><td class="n">44 ms</td><td class="n">3 ms</td><td class="n">67 ms*</td><td class="n">114 ms</td><td class="n">8.8 Hz</td><td class="n">6.9 Hz</td><td class="n">5.8 GB</td><td class="n"><span class="chip bad">0.482</span></td><td class="n"><span class="chip good">0.027</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note"><b>Rate</b> is 1 / total GPU compute per frame. <b>As run</b> also counts the benchmark's own frame reads and mask-to-JSON encoding (30 ms/frame for RF-DETR's masks), which a production pipeline keeping masks in memory would not pay. <b>*</b> The CLIP classifier runs per person, not per frame: 27 ms per crop, 10 crops per new person. Here it is spread over this clip's rate of 5 new people per second; a busier street costs more per frame, an empty one nothing. Women blurred and men false-blur are explained under the caveats.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Per component · L4</span>
+    <h2>Rate of each job, and what it scales with</h2>
+    <p>Model compute only. Detectors resize every frame to a fixed input (SAM 1008 px, RF-DETR 312–768 px), so their cost barely depends on the video's own resolution or on how crowded it is. Trackers and classifiers do depend on the crowd.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Component</th><th class="n">Cost</th><th class="n">Rate</th><th class="n">Peak GPU</th><th>Scales with</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="5">Detector + segmentation mask</td></tr>
+        <tr><td>SAM 3.1 detector · 1 prompt · batch 1</td><td class="n">260 ms/frame</td><td class="n">3.9 Hz</td><td class="n">6.9 GB</td><td>fixed per frame (75% is the ViT backbone)</td></tr>
+        <tr><td>SAM 3.1 detector · batch 2 / 4 / 8</td><td class="n">327 / 315 / 307 ms</td><td class="n">3.1 / 3.2 / 3.3 Hz</td><td class="n">7.9 / 9.9 / 14.0 GB</td><td>batching does not help on an L4; batch 16 runs out of memory</td></tr>
+        <tr><td>SAM 3.1 detector · 3 prompts, shared backbone</td><td class="n">369 ms/frame</td><td class="n">2.7 Hz</td><td class="n">8.3 GB</td><td>+55 ms per extra prompt</td></tr>
+        <tr><td>RF-DETR-Seg Nano · 312 px</td><td class="n">18 ms (fp32 13)</td><td class="n">56 Hz</td><td class="n">0.4 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg Small · 384 px</td><td class="n">9 ms (14)</td><td class="n">111 Hz</td><td class="n">0.5 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg Medium · 432 px</td><td class="n">9 ms (17)</td><td class="n">111 Hz</td><td class="n">0.6 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg Large · 504 px</td><td class="n">10 ms (21)</td><td class="n">100 Hz</td><td class="n">0.8 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg XLarge · 624 px</td><td class="n">14 ms (37)</td><td class="n">71 Hz</td><td class="n">1.1 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg 2XLarge · 768 px</td><td class="n">28 ms (67)</td><td class="n">36 Hz</td><td class="n">1.5 GB</td><td>fixed per frame</td></tr>
+        <tr><td>RF-DETR-Seg 2XLarge, full clip through <code>predict()</code></td><td class="n">44 ms/frame</td><td class="n">23 Hz</td><td class="n">0.4 GB</td><td>+ full-resolution mask output per person</td></tr>
+        <tr class="group"><td colspan="5">Tracker</td></tr>
+        <tr><td>SAM 3.1 Object Multiplex (tracked minus detector-only)</td><td class="n">≈ 177 ms/frame</td><td class="n">≈ 5.6 Hz</td><td class="n">+5.5 GB</td><td>objects tracked, in groups of 16</td></tr>
+        <tr><td>McByte, box overlap only</td><td class="n">2–3 ms/frame</td><td class="n">400–550 Hz</td><td class="n">CPU</td><td>people per frame (negligible)</td></tr>
+        <tr><td>McByte + SAM ViT-B + Cutie masks · 60 tracks</td><td class="n">274 ms/frame</td><td class="n">3.7 Hz</td><td class="n">3.2 GB</td><td>live tracks</td></tr>
+        <tr><td>McByte + SAM ViT-B + Cutie masks · 110 tracks</td><td class="n">371 ms/frame</td><td class="n">2.7 Hz</td><td class="n">3.3 GB</td><td>live tracks</td></tr>
+        <tr class="group"><td colspan="5">Classifier</td></tr>
+        <tr><td>OpenCLIP ViT-L/14-336 (openai), batch 64</td><td class="n">27 ms/crop</td><td class="n">37 crops/s</td><td class="n">3.1 GB</td><td>new people × K crops (K = 10 → 270 ms per person)</td></tr>
+        <tr><td>OpenCLIP ViT-SO400M-14-SigLIP-384 (webli)</td><td class="n">45 ms/crop</td><td class="n">22 crops/s</td><td class="n">5.8 GB</td><td>new people × K crops</td></tr>
+        <tr><td>SAM prompt as classifier</td><td class="n">+55 ms/frame per prompt</td><td class="n">—</td><td class="n">+0.1 GB</td><td>frames × prompts</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">CLIP rates include CPU preprocessing done inside the loop, so the GPU part alone is faster. Crop extraction adds about 3 ms per crop.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Other GPUs · from project notes, not re-measured today</span>
+    <h2>Earlier runs</h2>
+    <p>Same trial clip unless noted, converted to per-frame cost from the recorded totals. These come from earlier sessions' records and their settings differ from today's, so compare within a row, not across GPUs.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>GPU</th><th>What ran</th><th class="n">Cost</th><th class="n">Rate</th><th class="n">Peak GPU</th><th>Role</th></tr></thead>
+      <tbody>
+        <tr><td class="m">RTX PRO 4500 32 GB · Blackwell</td><td>SAM 3 transformers, person only, one session, stock</td><td class="n">1.06 s/frame</td><td class="n">0.94 Hz</td><td class="n">14.1 GB</td><td>all-in-one</td></tr>
+        <tr><td class="m">RTX PRO 4500</td><td>same, memory pruning (lossless)</td><td class="n">1.04 s/frame</td><td class="n">0.96 Hz</td><td class="n">8.6 GB</td><td>all-in-one</td></tr>
+        <tr><td class="m">RTX PRO 4500</td><td>same, chunked 100 frames</td><td class="n">0.86 s/frame</td><td class="n">1.16 Hz</td><td class="n">5.6 GB</td><td>all-in-one</td></tr>
+        <tr><td class="m">RTX PRO 4500</td><td>SAM 3, 4 prompts, chunked</td><td class="n">1.9 s/frame</td><td class="n">0.51 Hz</td><td class="n">11.1 GB</td><td>all-in-one</td></tr>
+        <tr><td class="m">24 GB card</td><td>SAM 3, 900-frame single session, pruned</td><td class="n">1.55 s/frame</td><td class="n">0.65 Hz</td><td class="n">17.4 GB</td><td>all-in-one</td></tr>
+        <tr><td class="m">RTX PRO 6000 96 GB · Blackwell</td><td>YOLO11x-seg @1280 + BoT-SORT</td><td class="n">42 ms/frame</td><td class="n">24 Hz</td><td class="n">—</td><td>detector + mask + tracker</td></tr>
+        <tr><td class="m">RTX PRO 6000</td><td>GPU face + OSNet ReID stage</td><td class="n">33 ms/frame</td><td class="n">30 Hz</td><td class="n">—</td><td>re-identification</td></tr>
+        <tr><td class="m">RTX PRO 6000</td><td>Qwen2.5-VL-7B judge</td><td class="n">~400 ms/crop</td><td class="n">2.5 crops/s</td><td class="n">—</td><td>classifier</td></tr>
+        <tr><td class="m">A100 80 GB PCIe</td><td>Qwen2.5-VL-7B judge (v3)</td><td class="n">~1.25 s/crop</td><td class="n">0.8 crops/s</td><td class="n">—</td><td>classifier</td></tr>
+        <tr><td class="m">A100 80 GB PCIe</td><td>DINOv2-giant fp16, 8 tiles of 64×64 tokens</td><td class="n">0.9 s per 8 tiles</td><td class="n">—</td><td class="n">4 GB</td><td>features for a trained head</td></tr>
+        <tr><td class="m">RTX 2000 Ada 16 GB</td><td>McByte + SAM/Cutie masks on YOLO26x boxes</td><td class="n">563 ms/frame</td><td class="n">1.8 Hz</td><td class="n">—</td><td>tracker</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Cross-GPU reference point: SAM 3 person-only tracking ran at 0.39 Hz (2.59 s/frame) on the L4 against about 0.96 Hz on the RTX PRO 4500, so the L4 is about 2.5× slower for this model.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Next</span>
+    <h2>Where to spend effort</h2>
+  </div>
+  <ul class="plain">
+    <li><b>Detection coverage, not gender.</b> With correct hand labels forced in, RF-DETR + McByte still reaches only 0.70 of women's frames against SAM 3's 0.80. The loss is frames where a woman's track is split, not yet started, or her mask doesn't cover enough of her. Try lowering McByte's new-track threshold (0.5 → 0.4), tiling for small background people, and merging split tracks by appearance.</li>
+    <li><b>Background crowd recall is unmeasured.</b> The hand labels cover mostly foreground people. The label-free check counts 24 of 66 people as never gendered for RF-DETR, but that check requires ≥ 0.5 mask IoU with SAM 3.1's own masks, so it favours SAM. Label a few background people before trusting either number.</li>
+    <li><b>Re-check the 0.25 threshold on new footage.</b> It was tuned on the same 21 people it is scored on. Every man scored at most 0.22 and the two hardest women 0.26–0.27, so the margin is thin.</li>
+    <li><b>Keep McByte in box-overlap mode</b> unless a clip shows a gain. Its SAM + Cutie masks cost about 0.3 s per frame here for about 2 points of coverage.</li>
+    <li><b>Detector speed headroom.</b> RF-DETR XLarge runs at half the cost of 2XLarge (14 vs 28 ms). For SAM, speedups have to come from the backbone (compile, TensorRT, FP8, or detecting every Nth frame) rather than from the heads.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head">
+    <span class="eyebrow">Read with care</span>
+    <h2>Caveats</h2>
+  </div>
+  <ul class="plain">
+    <li>Accuracy comes from one 12-second night-street clip and could move on other footage. Detector rates carry over to other videos (fixed input size). Tracker and classifier rates depend on how crowded the scene is; see the "Scales with" column.</li>
+    <li>Ground truth: 28 RF-DETR tracks labelled by eye from masked crop strips (confident labels only; 32 ambiguous tracks left out), carried onto 21 people of the SAM 3.1 person layer. The file is <code>tracking/results/sam31/gt_gender_ali_rfdetr_tracks.json</code>; the scorer is <code>tracking/gender_gt_eval.py</code>.</li>
+    <li>Rates are 1 / (GPU compute per frame), measured one job at a time on the pod. Model loading (5–25 s per model), weight downloads, video decoding and rendering are excluded. The as-run column adds the benchmark's own frame reads and mask encoding.</li><li><b>Women blurred</b> is the average, over the 11 hand-labelled women, of the share of their frames where the pipeline's blur covers at least half of the person. <b>Men false-blur</b> is the same measure over the 10 men.</li>
+    <li>SAM 3.1 needed five workarounds for upstream bugs at sam3 commit 2345a4a (memory leak, a crash when a tracked object is removed, session start, an off-by-one on the last frame, and defaults sized for an 80 GB H100). All are verified byte-identical on runs they don't change.</li>
+  </ul>
+</section>
+
+</div>

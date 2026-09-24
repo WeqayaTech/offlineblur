@@ -1,0 +1,83 @@
+{
+ "iou": 0.5,
+ "detections": 2652,
+ "detections_per_frame": 8.84,
+ "tracked_obs": 3669,
+ "tracked_obs_recalled": 0.546,
+ "detections_explained_by_tracked": 0.755,
+ "tracked_ids": 28,
+ "tracked_ids_frame_coverage_hist": {
+  "0": 3,
+  "(0,0.25)": 6,
+  "[0.25,0.5)": 3,
+  "[0.5,0.75)": 3,
+  "[0.75,1]": 13
+ },
+ "control_ids": 58,
+ "control_ids_frame_coverage_hist": {
+  "0": 10,
+  "(0,0.25)": 23,
+  "[0.25,0.5)": 5,
+  "[0.5,0.75)": 9,
+  "[0.75,1]": 11
+ },
+ "control_ids_covered": 20,
+ "control_ids_never_detected": 10,
+ "control_coverage_by_verdict": {
+  "conflict": {
+   "ids": 13,
+   "mean_frame_coverage": 0.386,
+   "hist": {
+    "0": 1,
+    "(0,0.25)": 4,
+    "[0.25,0.5)": 3,
+    "[0.5,0.75)": 4,
+    "[0.75,1]": 1
+   }
+  },
+  "flicker": {
+   "ids": 6,
+   "mean_frame_coverage": 0.205,
+   "hist": {
+    "0": 2,
+    "(0,0.25)": 2,
+    "[0.25,0.5)": 1,
+    "[0.5,0.75)": 1,
+    "[0.75,1]": 0
+   }
+  },
+  "man": {
+   "ids": 23,
+   "mean_frame_coverage": 0.109,
+   "hist": {
+    "0": 4,
+    "(0,0.25)": 17,
+    "[0.25,0.5)": 1,
+    "[0.5,0.75)": 1,
+    "[0.75,1]": 0
+   }
+  },
+  "ungendered": {
+   "ids": 2,
+   "mean_frame_coverage": 0.0,
+   "hist": {
+    "0": 2,
+    "(0,0.25)": 0,
+    "[0.25,0.5)": 0,
+    "[0.5,0.75)": 0,
+    "[0.75,1]": 0
+   }
+  },
+  "woman": {
+   "ids": 14,
+   "mean_frame_coverage": 0.785,
+   "hist": {
+    "0": 1,
+    "(0,0.25)": 0,
+    "[0.25,0.5)": 0,
+    "[0.5,0.75)": 3,
+    "[0.75,1]": 10
+   }
+  }
+ }
+}

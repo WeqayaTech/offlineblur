@@ -1,0 +1,110 @@
+{
+ "tracker": "sam3.1",
+ "checkpoint": "/workspace/SAM 3.1/sam3.1_multiplex.pt",
+ "gpu": "NVIDIA L4",
+ "prompts": [
+  "woman",
+  "man",
+  "person"
+ ],
+ "max_num_objects": 128,
+ "multiplex_count": 16,
+ "use_fa3": false,
+ "compile": false,
+ "offload_video": false,
+ "memory_keep": 20,
+ "cond_guard": {
+  "promoted_frames": 1,
+  "fired": 1
+ },
+ "config_overrides": {
+  "batched_grounding_batch_size": 4
+ },
+ "min_score": 0.0,
+ "n_frames": 300,
+ "width": 1280,
+ "height": 720,
+ "n_obs": 14627,
+ "n_tracks": 141,
+ "n_tracks_per_prompt": {
+  "woman": 32,
+  "man": 43,
+  "person": 66
+ },
+ "seconds": 485.1,
+ "sec_per_frame": 1.617,
+ "host_rss_peak_gb": 6.136,
+ "profile": {
+  "build_s": 25.41,
+  "after_build": {
+   "gpu_alloc": 3.646,
+   "gpu_reserved": 3.658,
+   "gpu_peak": 3.646,
+   "gpu_device_used": 3.877,
+   "host_rss": 3.989
+  },
+  "per_prompt": {
+   "woman": {
+    "start_session_s": 10.89,
+    "after_frames_loaded": {
+     "gpu_alloc": 5.35,
+     "gpu_reserved": 5.357,
+     "gpu_peak": 5.35,
+     "gpu_device_used": 5.576,
+     "host_rss": 3.991
+    },
+    "add_prompt_s": 0.78,
+    "propagate_s": 133.88,
+    "propagate_model_s": 130.87,
+    "consumer_io_s": 2.87,
+    "frames": 300,
+    "model_fps": 2.29,
+    "gpu_peak_gb": 13.579,
+    "gpu_reserved_end_gb": 14.508,
+    "n_ids": 32,
+    "n_pruned_entries": 4705
+   },
+   "man": {
+    "start_session_s": 10.79,
+    "after_frames_loaded": {
+     "gpu_alloc": 6.574,
+     "gpu_reserved": 14.508,
+     "gpu_peak": 6.574,
+     "gpu_device_used": 14.756,
+     "host_rss": 6.131
+    },
+    "add_prompt_s": 0.58,
+    "propagate_s": 148.23,
+    "propagate_model_s": 144.1,
+    "consumer_io_s": 3.98,
+    "frames": 300,
+    "model_fps": 2.08,
+    "gpu_peak_gb": 14.457,
+    "gpu_reserved_end_gb": 15.422,
+    "n_ids": 43,
+    "n_pruned_entries": 7115
+   },
+   "person": {
+    "start_session_s": 10.55,
+    "after_frames_loaded": {
+     "gpu_alloc": 6.574,
+     "gpu_reserved": 15.422,
+     "gpu_peak": 6.574,
+     "gpu_device_used": 15.67,
+     "host_rss": 6.133
+    },
+    "add_prompt_s": 0.62,
+    "propagate_s": 168.07,
+    "propagate_model_s": 162.57,
+    "consumer_io_s": 5.35,
+    "frames": 300,
+    "model_fps": 1.85,
+    "gpu_peak_gb": 16.228,
+    "gpu_reserved_end_gb": 17.732,
+    "n_ids": 66,
+    "n_pruned_entries": 10199
+   }
+  }
+ },
+ "masks": "/root/tracking/out/ali-dawah-street-interview-source/sam31_gender/masks.jsonl"
+}

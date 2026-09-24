@@ -1,0 +1,19 @@
+{
+ "detector": "rf-detr-seg-2xlarge",
+ "resolution": 768,
+ "fp16_optimized": true,
+ "threshold": 0.15,
+ "batch": 1,
+ "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+ "n_frames": 300,
+ "n_dets": 9404,
+ "dets_per_frame": 31.35,
+ "load_s": 10.0,
+ "frame_read_s": 0.85,
+ "detector_s": 6.27,
+ "rle_io_s": 7.65,
+ "wall_s": 14.81,
+ "detector_fps": 47.84,
+ "gpu_peak_gb": 0.396,
+ "host_rss_peak_gb": 2.41
+}

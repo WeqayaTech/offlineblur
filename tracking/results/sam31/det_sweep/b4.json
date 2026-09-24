@@ -1,0 +1,30 @@
+{
+ "tracker": null,
+ "detector": "sam3.1",
+ "prompt": "woman",
+ "checkpoint": "/workspace/SAM 3.1/sam3.1_multiplex.pt",
+ "gpu": "NVIDIA L4",
+ "batch": 4,
+ "mode": "lean",
+ "offload_video": false,
+ "config_overrides": {
+  "batched_grounding_batch_size": 4
+ },
+ "n_frames": 100,
+ "width": 1280,
+ "height": 720,
+ "n_dets": 967,
+ "dets_per_frame": 9.67,
+ "build_s": 21.0,
+ "load_frames_s": 3.7,
+ "add_prompt_s": 0.8,
+ "detector_s": 31.52,
+ "postprocess_s": 0.1,
+ "rle_io_s": 0.0,
+ "wall_s": 31.66,
+ "detector_fps": 3.17,
+ "detector_plus_masks_fps": 3.16,
+ "gpu_peak_gb": 9.941,
+ "gpu_reserved_gb": 10.754,
+ "host_rss_peak_gb": 4.119
+}

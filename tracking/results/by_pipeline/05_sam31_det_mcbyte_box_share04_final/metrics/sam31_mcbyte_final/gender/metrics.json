@@ -1,0 +1,52 @@
+{
+ "clip": "ali-dawah-street-interview-source.mp4",
+ "n_frames": 300,
+ "n_masks": 12551,
+ "prompts": {
+  "child": {
+   "ids": 3,
+   "obs": 97,
+   "obs_per_frame": 0.32,
+   "median_span_frames": 41
+  },
+  "man": {
+   "ids": 52,
+   "obs": 3108,
+   "obs_per_frame": 10.36,
+   "median_span_frames": 38.5
+  },
+  "person": {
+   "ids": 66,
+   "obs": 6622,
+   "obs_per_frame": 22.07,
+   "median_span_frames": 61.0
+  },
+  "woman": {
+   "ids": 53,
+   "obs": 2724,
+   "obs_per_frame": 9.08,
+   "median_span_frames": 43
+  }
+ },
+ "control_prompt": "person",
+ "blur_prompt": "woman",
+ "other_prompt": "man",
+ "thresholds": {
+  "cover_iou": 0.5,
+  "conflict_iou": 0.5,
+  "min_frac": 0.5
+ },
+ "identities": {
+  "control_total": 66,
+  "woman": 23,
+  "man": 31,
+  "conflict": 0,
+  "flicker": 8,
+  "ungendered": 4,
+  "escape_is_child": 1
+ },
+ "escape_rate_identities": 0.182,
+ "conflict_rate_blur_obs": 0.0,
+ "conflict_obs": 0,
+ "blur_obs": 2724
+}

@@ -1,0 +1,450 @@
+{
+ "meta": {
+  "video": "/root/tracking/videos/ali-dawah-street-interview-source.mp4",
+  "frames": 300,
+  "size": [
+   1280,
+   720
+  ],
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "rf_model": "2XLarge",
+  "resolution": 768,
+  "batch": 8,
+  "encoder": "libx264",
+  "cmc": false,
+  "lost_buffer": 75,
+  "activation": null,
+  "fill_gaps": 0,
+  "filled": 0,
+  "clip": "ViT-L-14-336 (openai)",
+  "tracks": 81,
+  "women": 40,
+  "crops": 472,
+  "persons": 9569,
+  "load_s": 6.8,
+  "pass1_s": 2.36,
+  "pass2_s": 0.41,
+  "total_s": 3.9,
+  "stage_ms_per_frame": {
+   "blur": 1.06,
+   "clip": 3.76,
+   "decode(thread)": 3.34,
+   "encode_queue": 0.18,
+   "mask_store+candidates": 1.17,
+   "mcbyte": 1.15,
+   "rfdetr_forward": 4.81,
+   "rfdetr_postprocess": 0.14,
+   "upload+preprocess": 0.34
+  },
+  "end_to_end_hz": 76.9,
+  "pass1_hz": 127.0,
+  "gpu_peak_gb": 4.76
+ },
+ "labels": {
+  "0": {
+   "label": "man",
+   "p_female": 0.001,
+   "n_crops": 10
+  },
+  "1": {
+   "label": "man",
+   "p_female": 0.049,
+   "n_crops": 9
+  },
+  "2": {
+   "label": "woman",
+   "p_female": 0.979,
+   "n_crops": 10
+  },
+  "3": {
+   "label": "woman",
+   "p_female": 0.959,
+   "n_crops": 1
+  },
+  "4": {
+   "label": "woman",
+   "p_female": 0.747,
+   "n_crops": 9
+  },
+  "5": {
+   "label": "man",
+   "p_female": 0.11,
+   "n_crops": 7
+  },
+  "6": {
+   "label": "woman",
+   "p_female": 0.332,
+   "n_crops": 9
+  },
+  "7": {
+   "label": "woman",
+   "p_female": 0.294,
+   "n_crops": 2
+  },
+  "8": {
+   "label": "man",
+   "p_female": 0.181,
+   "n_crops": 10
+  },
+  "9": {
+   "label": "woman",
+   "p_female": 0.747,
+   "n_crops": 10
+  },
+  "10": {
+   "label": "man",
+   "p_female": 0.175,
+   "n_crops": 8
+  },
+  "11": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 7
+  },
+  "12": {
+   "label": "man",
+   "p_female": 0.13,
+   "n_crops": 3
+  },
+  "13": {
+   "label": "man",
+   "p_female": 0.037,
+   "n_crops": 8
+  },
+  "14": {
+   "label": "woman",
+   "p_female": 0.917,
+   "n_crops": 4
+  },
+  "15": {
+   "label": "woman",
+   "p_female": 0.607,
+   "n_crops": 10
+  },
+  "16": {
+   "label": "man",
+   "p_female": 0.033,
+   "n_crops": 10
+  },
+  "17": {
+   "label": "man",
+   "p_female": 0.197,
+   "n_crops": 5
+  },
+  "18": {
+   "label": "woman",
+   "p_female": 0.836,
+   "n_crops": 4
+  },
+  "19": {
+   "label": "woman",
+   "p_female": 0.882,
+   "n_crops": 10
+  },
+  "20": {
+   "label": "man",
+   "p_female": 0.012,
+   "n_crops": 10
+  },
+  "21": {
+   "label": "woman",
+   "p_female": 0.379,
+   "n_crops": 3
+  },
+  "22": {
+   "label": "man",
+   "p_female": 0.099,
+   "n_crops": 5
+  },
+  "23": {
+   "label": "woman",
+   "p_female": 0.336,
+   "n_crops": 6
+  },
+  "24": {
+   "label": "man",
+   "p_female": 0.136,
+   "n_crops": 6
+  },
+  "25": {
+   "label": "man",
+   "p_female": 0.178,
+   "n_crops": 10
+  },
+  "26": {
+   "label": "woman",
+   "p_female": 0.35,
+   "n_crops": 10
+  },
+  "27": {
+   "label": "man",
+   "p_female": 0.053,
+   "n_crops": 4
+  },
+  "28": {
+   "label": "woman",
+   "p_female": 0.309,
+   "n_crops": 4
+  },
+  "29": {
+   "label": "man",
+   "p_female": 0.213,
+   "n_crops": 10
+  },
+  "30": {
+   "label": "woman",
+   "p_female": 0.422,
+   "n_crops": 1
+  },
+  "31": {
+   "label": "woman",
+   "p_female": 0.548,
+   "n_crops": 5
+  },
+  "32": {
+   "label": "man",
+   "p_female": 0.08,
+   "n_crops": 10
+  },
+  "33": {
+   "label": "man",
+   "p_female": 0.059,
+   "n_crops": 10
+  },
+  "34": {
+   "label": "woman",
+   "p_female": 0.307,
+   "n_crops": 4
+  },
+  "35": {
+   "label": "woman",
+   "p_female": 0.554,
+   "n_crops": 2
+  },
+  "36": {
+   "label": "man",
+   "p_female": 0.191,
+   "n_crops": 9
+  },
+  "37": {
+   "label": "man",
+   "p_female": 0.17,
+   "n_crops": 10
+  },
+  "38": {
+   "label": "woman",
+   "p_female": 0.442,
+   "n_crops": 5
+  },
+  "39": {
+   "label": "woman",
+   "p_female": 0.491,
+   "n_crops": 6
+  },
+  "40": {
+   "label": "woman",
+   "p_female": 0.775,
+   "n_crops": 5
+  },
+  "41": {
+   "label": "man",
+   "p_female": 0.129,
+   "n_crops": 4
+  },
+  "42": {
+   "label": "woman",
+   "p_female": 0.313,
+   "n_crops": 1
+  },
+  "43": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 9
+  },
+  "44": {
+   "label": "man",
+   "p_female": 0.206,
+   "n_crops": 10
+  },
+  "45": {
+   "label": "woman",
+   "p_female": 0.643,
+   "n_crops": 10
+  },
+  "46": {
+   "label": "man",
+   "p_female": 0.104,
+   "n_crops": 10
+  },
+  "47": {
+   "label": "man",
+   "p_female": 0.186,
+   "n_crops": 1
+  },
+  "48": {
+   "label": "man",
+   "p_female": 0.099,
+   "n_crops": 6
+  },
+  "49": {
+   "label": "man",
+   "p_female": 0.031,
+   "n_crops": 10
+  },
+  "50": {
+   "label": "man",
+   "p_female": 0.183,
+   "n_crops": 5
+  },
+  "51": {
+   "label": "woman",
+   "p_female": 0.668,
+   "n_crops": 10
+  },
+  "52": {
+   "label": "woman",
+   "p_female": 0.627,
+   "n_crops": 10
+  },
+  "53": {
+   "label": "woman",
+   "p_female": 0.255,
+   "n_crops": 1
+  },
+  "54": {
+   "label": "man",
+   "p_female": 0.122,
+   "n_crops": 2
+  },
+  "55": {
+   "label": "woman",
+   "p_female": 0.653,
+   "n_crops": 10
+  },
+  "56": {
+   "label": "man",
+   "p_female": 0.134,
+   "n_crops": 6
+  },
+  "57": {
+   "label": "woman",
+   "p_female": 0.333,
+   "n_crops": 2
+  },
+  "58": {
+   "label": "woman",
+   "p_female": 0.496,
+   "n_crops": 3
+  },
+  "59": {
+   "label": "man",
+   "p_female": 0.082,
+   "n_crops": 8
+  },
+  "60": {
+   "label": "man",
+   "p_female": 0.22,
+   "n_crops": 6
+  },
+  "61": {
+   "label": "man",
+   "p_female": 0.09,
+   "n_crops": 8
+  },
+  "62": {
+   "label": "woman",
+   "p_female": 0.479,
+   "n_crops": 4
+  },
+  "63": {
+   "label": "man",
+   "p_female": 0.046,
+   "n_crops": 3
+  },
+  "64": {
+   "label": "man",
+   "p_female": 0.234,
+   "n_crops": 2
+  },
+  "65": {
+   "label": "man",
+   "p_female": 0.209,
+   "n_crops": 6
+  },
+  "66": {
+   "label": "woman",
+   "p_female": 0.283,
+   "n_crops": 5
+  },
+  "67": {
+   "label": "woman",
+   "p_female": 0.666,
+   "n_crops": 4
+  },
+  "68": {
+   "label": "woman",
+   "p_female": 0.633,
+   "n_crops": 3
+  },
+  "69": {
+   "label": "woman",
+   "p_female": 0.299,
+   "n_crops": 4
+  },
+  "70": {
+   "label": "woman",
+   "p_female": 0.262,
+   "n_crops": 5
+  },
+  "71": {
+   "label": "man",
+   "p_female": 0.055,
+   "n_crops": 4
+  },
+  "72": {
+   "label": "man",
+   "p_female": 0.23,
+   "n_crops": 2
+  },
+  "73": {
+   "label": "man",
+   "p_female": 0.131,
+   "n_crops": 4
+  },
+  "74": {
+   "label": "woman",
+   "p_female": 0.743,
+   "n_crops": 1
+  },
+  "75": {
+   "label": "woman",
+   "p_female": 0.984,
+   "n_crops": 5
+  },
+  "76": {
+   "label": "woman",
+   "p_female": 0.295,
+   "n_crops": 3
+  },
+  "77": {
+   "label": "woman",
+   "p_female": 0.542,
+   "n_crops": 1
+  },
+  "78": {
+   "label": "man",
+   "p_female": 0.088,
+   "n_crops": 1
+  },
+  "79": {
+   "label": "woman",
+   "p_female": 0.666,
+   "n_crops": 1
+  },
+  "80": {
+   "label": "man",
+   "p_female": 0.141,
+   "n_crops": 1
+  }
+ }
+}

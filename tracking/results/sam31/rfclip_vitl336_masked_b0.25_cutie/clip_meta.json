@@ -1,0 +1,38 @@
+{
+ "classifier": "open_clip ViT-L-14-336 (openai)",
+ "k": 10,
+ "min_gap": 5,
+ "margin": 0.1,
+ "masked": true,
+ "batch": 64,
+ "blur_min": 0.25,
+ "classes": [
+  "woman",
+  "man",
+  "girl",
+  "boy"
+ ],
+ "templates": [
+  "a photo of a {}.",
+  "a photo of a {} walking on the street.",
+  "a cropped photo of a {}.",
+  "a low resolution photo of a {}.",
+  "a photo of a {} seen from behind.",
+  "a blurry photo of a {}.",
+  "a photo of a {} in a crowd."
+ ],
+ "tracks": 60,
+ "labels": {
+  "woman": 26,
+  "man": 34
+ },
+ "crops": 406,
+ "mask_rows": 4764,
+ "load_s": 3.6,
+ "crop_extract_s": 1.3,
+ "model_s": 14.52,
+ "crops_per_s": 28.0,
+ "gpu_peak_gb": 3.095,
+ "host_rss_gb": 1.679,
+ "gpu": "NVIDIA L4"
+}

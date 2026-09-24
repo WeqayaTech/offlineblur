@@ -1,0 +1,38 @@
+{
+ "classifier": "open_clip ViT-SO400M-14-SigLIP-384 (webli)",
+ "k": 10,
+ "min_gap": 5,
+ "margin": 0.1,
+ "masked": true,
+ "batch": 64,
+ "blur_min": 0.5,
+ "classes": [
+  "woman",
+  "man",
+  "girl",
+  "boy"
+ ],
+ "templates": [
+  "a photo of a {}.",
+  "a photo of a {} walking on the street.",
+  "a cropped photo of a {}.",
+  "a low resolution photo of a {}.",
+  "a photo of a {} seen from behind.",
+  "a blurry photo of a {}.",
+  "a photo of a {} in a crowd."
+ ],
+ "tracks": 60,
+ "labels": {
+  "woman": 9,
+  "man": 51
+ },
+ "crops": 418,
+ "mask_rows": 3914,
+ "load_s": 11.4,
+ "crop_extract_s": 1.13,
+ "model_s": 16.1,
+ "crops_per_s": 26.0,
+ "gpu_peak_gb": 5.787,
+ "host_rss_gb": 1.621,
+ "gpu": "NVIDIA L4"
+}

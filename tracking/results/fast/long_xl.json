@@ -1,0 +1,985 @@
+{
+ "meta": {
+  "video": "/root/tracking/videos/ali_x4.mp4",
+  "frames": 1200,
+  "size": [
+   1280,
+   720
+  ],
+  "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+  "rf_model": "XLarge",
+  "resolution": 624,
+  "batch": 8,
+  "encoder": "libx264",
+  "clip": "ViT-L-14-336 (openai)",
+  "tracks": 189,
+  "women": 79,
+  "crops": 1240,
+  "persons": 37600,
+  "load_s": 6.5,
+  "pass1_s": 6.16,
+  "pass2_s": 1.24,
+  "total_s": 10.36,
+  "stage_ms_per_frame": {
+   "blur": 0.79,
+   "clip": 2.47,
+   "decode(thread)": 3.07,
+   "encode_queue": 0.19,
+   "mask_store+candidates": 0.8,
+   "mcbyte": 0.8,
+   "rfdetr_forward": 3.09,
+   "rfdetr_postprocess": 0.11,
+   "upload+preprocess": 0.26
+  },
+  "end_to_end_hz": 115.8,
+  "pass1_hz": 194.9,
+  "gpu_peak_gb": 5.14
+ },
+ "labels": {
+  "0": {
+   "label": "woman",
+   "p_female": 0.821,
+   "n_crops": 2
+  },
+  "1": {
+   "label": "woman",
+   "p_female": 0.983,
+   "n_crops": 10
+  },
+  "2": {
+   "label": "man",
+   "p_female": 0.002,
+   "n_crops": 10
+  },
+  "3": {
+   "label": "man",
+   "p_female": 0.048,
+   "n_crops": 8
+  },
+  "4": {
+   "label": "woman",
+   "p_female": 0.579,
+   "n_crops": 10
+  },
+  "5": {
+   "label": "man",
+   "p_female": 0.077,
+   "n_crops": 2
+  },
+  "6": {
+   "label": "woman",
+   "p_female": 0.295,
+   "n_crops": 8
+  },
+  "7": {
+   "label": "man",
+   "p_female": 0.167,
+   "n_crops": 3
+  },
+  "8": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 7
+  },
+  "9": {
+   "label": "man",
+   "p_female": 0.142,
+   "n_crops": 1
+  },
+  "10": {
+   "label": "woman",
+   "p_female": 0.741,
+   "n_crops": 10
+  },
+  "11": {
+   "label": "man",
+   "p_female": 0.137,
+   "n_crops": 7
+  },
+  "12": {
+   "label": "man",
+   "p_female": 0.019,
+   "n_crops": 6
+  },
+  "13": {
+   "label": "woman",
+   "p_female": 0.414,
+   "n_crops": 5
+  },
+  "14": {
+   "label": "man",
+   "p_female": 0.183,
+   "n_crops": 10
+  },
+  "15": {
+   "label": "woman",
+   "p_female": 0.887,
+   "n_crops": 10
+  },
+  "16": {
+   "label": "man",
+   "p_female": 0.1,
+   "n_crops": 4
+  },
+  "17": {
+   "label": "man",
+   "p_female": 0.19,
+   "n_crops": 7
+  },
+  "18": {
+   "label": "woman",
+   "p_female": 0.366,
+   "n_crops": 4
+  },
+  "19": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 5
+  },
+  "20": {
+   "label": "man",
+   "p_female": 0.236,
+   "n_crops": 10
+  },
+  "21": {
+   "label": "man",
+   "p_female": 0.098,
+   "n_crops": 5
+  },
+  "22": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 10
+  },
+  "23": {
+   "label": "woman",
+   "p_female": 0.336,
+   "n_crops": 5
+  },
+  "24": {
+   "label": "man",
+   "p_female": 0.225,
+   "n_crops": 10
+  },
+  "25": {
+   "label": "man",
+   "p_female": 0.089,
+   "n_crops": 10
+  },
+  "26": {
+   "label": "man",
+   "p_female": 0.051,
+   "n_crops": 10
+  },
+  "27": {
+   "label": "man",
+   "p_female": 0.206,
+   "n_crops": 8
+  },
+  "28": {
+   "label": "woman",
+   "p_female": 0.323,
+   "n_crops": 2
+  },
+  "29": {
+   "label": "woman",
+   "p_female": 0.288,
+   "n_crops": 6
+  },
+  "30": {
+   "label": "man",
+   "p_female": 0.178,
+   "n_crops": 10
+  },
+  "31": {
+   "label": "man",
+   "p_female": 0.091,
+   "n_crops": 8
+  },
+  "32": {
+   "label": "man",
+   "p_female": 0.011,
+   "n_crops": 10
+  },
+  "33": {
+   "label": "woman",
+   "p_female": 0.707,
+   "n_crops": 10
+  },
+  "34": {
+   "label": "man",
+   "p_female": 0.08,
+   "n_crops": 10
+  },
+  "35": {
+   "label": "man",
+   "p_female": 0.128,
+   "n_crops": 5
+  },
+  "36": {
+   "label": "man",
+   "p_female": 0.115,
+   "n_crops": 10
+  },
+  "37": {
+   "label": "man",
+   "p_female": 0.197,
+   "n_crops": 3
+  },
+  "38": {
+   "label": "woman",
+   "p_female": 0.744,
+   "n_crops": 10
+  },
+  "39": {
+   "label": "woman",
+   "p_female": 0.546,
+   "n_crops": 10
+  },
+  "40": {
+   "label": "man",
+   "p_female": 0.191,
+   "n_crops": 4
+  },
+  "41": {
+   "label": "woman",
+   "p_female": 0.674,
+   "n_crops": 10
+  },
+  "42": {
+   "label": "man",
+   "p_female": 0.176,
+   "n_crops": 2
+  },
+  "43": {
+   "label": "woman",
+   "p_female": 0.54,
+   "n_crops": 4
+  },
+  "44": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 1
+  },
+  "45": {
+   "label": "woman",
+   "p_female": 0.292,
+   "n_crops": 6
+  },
+  "46": {
+   "label": "woman",
+   "p_female": 0.624,
+   "n_crops": 4
+  },
+  "47": {
+   "label": "man",
+   "p_female": 0.041,
+   "n_crops": 6
+  },
+  "48": {
+   "label": "woman",
+   "p_female": 0.382,
+   "n_crops": 3
+  },
+  "49": {
+   "label": "man",
+   "p_female": 0.131,
+   "n_crops": 10
+  },
+  "50": {
+   "label": "woman",
+   "p_female": 0.426,
+   "n_crops": 10
+  },
+  "51": {
+   "label": "man",
+   "p_female": 0.029,
+   "n_crops": 2
+  },
+  "52": {
+   "label": "woman",
+   "p_female": 0.343,
+   "n_crops": 2
+  },
+  "53": {
+   "label": "woman",
+   "p_female": 0.71,
+   "n_crops": 10
+  },
+  "54": {
+   "label": "woman",
+   "p_female": 0.955,
+   "n_crops": 1
+  },
+  "55": {
+   "label": "woman",
+   "p_female": 0.295,
+   "n_crops": 8
+  },
+  "56": {
+   "label": "man",
+   "p_female": 0.167,
+   "n_crops": 3
+  },
+  "57": {
+   "label": "man",
+   "p_female": 0.019,
+   "n_crops": 6
+  },
+  "58": {
+   "label": "woman",
+   "p_female": 0.414,
+   "n_crops": 5
+  },
+  "59": {
+   "label": "man",
+   "p_female": 0.183,
+   "n_crops": 10
+  },
+  "60": {
+   "label": "woman",
+   "p_female": 0.887,
+   "n_crops": 10
+  },
+  "61": {
+   "label": "man",
+   "p_female": 0.1,
+   "n_crops": 4
+  },
+  "62": {
+   "label": "man",
+   "p_female": 0.19,
+   "n_crops": 7
+  },
+  "63": {
+   "label": "woman",
+   "p_female": 0.366,
+   "n_crops": 4
+  },
+  "64": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 5
+  },
+  "65": {
+   "label": "man",
+   "p_female": 0.236,
+   "n_crops": 10
+  },
+  "66": {
+   "label": "man",
+   "p_female": 0.098,
+   "n_crops": 5
+  },
+  "67": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 10
+  },
+  "68": {
+   "label": "woman",
+   "p_female": 0.336,
+   "n_crops": 5
+  },
+  "69": {
+   "label": "man",
+   "p_female": 0.225,
+   "n_crops": 10
+  },
+  "70": {
+   "label": "man",
+   "p_female": 0.089,
+   "n_crops": 10
+  },
+  "71": {
+   "label": "man",
+   "p_female": 0.051,
+   "n_crops": 10
+  },
+  "72": {
+   "label": "man",
+   "p_female": 0.206,
+   "n_crops": 8
+  },
+  "73": {
+   "label": "woman",
+   "p_female": 0.323,
+   "n_crops": 2
+  },
+  "74": {
+   "label": "woman",
+   "p_female": 0.288,
+   "n_crops": 6
+  },
+  "75": {
+   "label": "man",
+   "p_female": 0.178,
+   "n_crops": 10
+  },
+  "76": {
+   "label": "man",
+   "p_female": 0.091,
+   "n_crops": 8
+  },
+  "77": {
+   "label": "man",
+   "p_female": 0.011,
+   "n_crops": 10
+  },
+  "78": {
+   "label": "woman",
+   "p_female": 0.707,
+   "n_crops": 10
+  },
+  "79": {
+   "label": "man",
+   "p_female": 0.08,
+   "n_crops": 10
+  },
+  "80": {
+   "label": "man",
+   "p_female": 0.128,
+   "n_crops": 5
+  },
+  "81": {
+   "label": "man",
+   "p_female": 0.115,
+   "n_crops": 10
+  },
+  "82": {
+   "label": "man",
+   "p_female": 0.197,
+   "n_crops": 3
+  },
+  "83": {
+   "label": "woman",
+   "p_female": 0.744,
+   "n_crops": 10
+  },
+  "84": {
+   "label": "woman",
+   "p_female": 0.546,
+   "n_crops": 10
+  },
+  "85": {
+   "label": "man",
+   "p_female": 0.191,
+   "n_crops": 4
+  },
+  "86": {
+   "label": "woman",
+   "p_female": 0.674,
+   "n_crops": 10
+  },
+  "87": {
+   "label": "man",
+   "p_female": 0.176,
+   "n_crops": 2
+  },
+  "88": {
+   "label": "woman",
+   "p_female": 0.54,
+   "n_crops": 4
+  },
+  "89": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 1
+  },
+  "90": {
+   "label": "woman",
+   "p_female": 0.292,
+   "n_crops": 6
+  },
+  "91": {
+   "label": "woman",
+   "p_female": 0.624,
+   "n_crops": 4
+  },
+  "92": {
+   "label": "man",
+   "p_female": 0.041,
+   "n_crops": 6
+  },
+  "93": {
+   "label": "woman",
+   "p_female": 0.382,
+   "n_crops": 3
+  },
+  "94": {
+   "label": "man",
+   "p_female": 0.131,
+   "n_crops": 10
+  },
+  "95": {
+   "label": "woman",
+   "p_female": 0.426,
+   "n_crops": 10
+  },
+  "96": {
+   "label": "man",
+   "p_female": 0.029,
+   "n_crops": 2
+  },
+  "97": {
+   "label": "woman",
+   "p_female": 0.343,
+   "n_crops": 2
+  },
+  "98": {
+   "label": "woman",
+   "p_female": 0.71,
+   "n_crops": 10
+  },
+  "99": {
+   "label": "woman",
+   "p_female": 0.955,
+   "n_crops": 1
+  },
+  "100": {
+   "label": "woman",
+   "p_female": 0.295,
+   "n_crops": 8
+  },
+  "101": {
+   "label": "man",
+   "p_female": 0.167,
+   "n_crops": 3
+  },
+  "102": {
+   "label": "man",
+   "p_female": 0.019,
+   "n_crops": 6
+  },
+  "103": {
+   "label": "woman",
+   "p_female": 0.414,
+   "n_crops": 5
+  },
+  "104": {
+   "label": "man",
+   "p_female": 0.183,
+   "n_crops": 10
+  },
+  "105": {
+   "label": "woman",
+   "p_female": 0.887,
+   "n_crops": 10
+  },
+  "106": {
+   "label": "man",
+   "p_female": 0.1,
+   "n_crops": 4
+  },
+  "107": {
+   "label": "man",
+   "p_female": 0.19,
+   "n_crops": 7
+  },
+  "108": {
+   "label": "woman",
+   "p_female": 0.366,
+   "n_crops": 4
+  },
+  "109": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 5
+  },
+  "110": {
+   "label": "man",
+   "p_female": 0.236,
+   "n_crops": 10
+  },
+  "111": {
+   "label": "man",
+   "p_female": 0.098,
+   "n_crops": 5
+  },
+  "112": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 10
+  },
+  "113": {
+   "label": "woman",
+   "p_female": 0.336,
+   "n_crops": 5
+  },
+  "114": {
+   "label": "man",
+   "p_female": 0.225,
+   "n_crops": 10
+  },
+  "115": {
+   "label": "man",
+   "p_female": 0.089,
+   "n_crops": 10
+  },
+  "116": {
+   "label": "man",
+   "p_female": 0.051,
+   "n_crops": 10
+  },
+  "117": {
+   "label": "man",
+   "p_female": 0.206,
+   "n_crops": 8
+  },
+  "118": {
+   "label": "woman",
+   "p_female": 0.323,
+   "n_crops": 2
+  },
+  "119": {
+   "label": "woman",
+   "p_female": 0.288,
+   "n_crops": 6
+  },
+  "120": {
+   "label": "man",
+   "p_female": 0.178,
+   "n_crops": 10
+  },
+  "121": {
+   "label": "man",
+   "p_female": 0.091,
+   "n_crops": 8
+  },
+  "122": {
+   "label": "man",
+   "p_female": 0.011,
+   "n_crops": 10
+  },
+  "123": {
+   "label": "woman",
+   "p_female": 0.707,
+   "n_crops": 10
+  },
+  "124": {
+   "label": "man",
+   "p_female": 0.08,
+   "n_crops": 10
+  },
+  "125": {
+   "label": "man",
+   "p_female": 0.128,
+   "n_crops": 5
+  },
+  "126": {
+   "label": "man",
+   "p_female": 0.115,
+   "n_crops": 10
+  },
+  "127": {
+   "label": "man",
+   "p_female": 0.197,
+   "n_crops": 3
+  },
+  "128": {
+   "label": "woman",
+   "p_female": 0.744,
+   "n_crops": 10
+  },
+  "129": {
+   "label": "woman",
+   "p_female": 0.546,
+   "n_crops": 10
+  },
+  "130": {
+   "label": "man",
+   "p_female": 0.191,
+   "n_crops": 4
+  },
+  "131": {
+   "label": "woman",
+   "p_female": 0.674,
+   "n_crops": 10
+  },
+  "132": {
+   "label": "man",
+   "p_female": 0.176,
+   "n_crops": 2
+  },
+  "133": {
+   "label": "woman",
+   "p_female": 0.54,
+   "n_crops": 4
+  },
+  "134": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 1
+  },
+  "135": {
+   "label": "woman",
+   "p_female": 0.292,
+   "n_crops": 6
+  },
+  "136": {
+   "label": "woman",
+   "p_female": 0.624,
+   "n_crops": 4
+  },
+  "137": {
+   "label": "man",
+   "p_female": 0.041,
+   "n_crops": 6
+  },
+  "138": {
+   "label": "woman",
+   "p_female": 0.382,
+   "n_crops": 3
+  },
+  "139": {
+   "label": "man",
+   "p_female": 0.131,
+   "n_crops": 10
+  },
+  "140": {
+   "label": "woman",
+   "p_female": 0.426,
+   "n_crops": 10
+  },
+  "141": {
+   "label": "man",
+   "p_female": 0.029,
+   "n_crops": 2
+  },
+  "142": {
+   "label": "woman",
+   "p_female": 0.343,
+   "n_crops": 2
+  },
+  "143": {
+   "label": "woman",
+   "p_female": 0.71,
+   "n_crops": 10
+  },
+  "144": {
+   "label": "woman",
+   "p_female": 0.955,
+   "n_crops": 1
+  },
+  "145": {
+   "label": "woman",
+   "p_female": 0.295,
+   "n_crops": 8
+  },
+  "146": {
+   "label": "man",
+   "p_female": 0.167,
+   "n_crops": 3
+  },
+  "147": {
+   "label": "man",
+   "p_female": 0.019,
+   "n_crops": 6
+  },
+  "148": {
+   "label": "woman",
+   "p_female": 0.414,
+   "n_crops": 5
+  },
+  "149": {
+   "label": "man",
+   "p_female": 0.183,
+   "n_crops": 10
+  },
+  "150": {
+   "label": "woman",
+   "p_female": 0.887,
+   "n_crops": 10
+  },
+  "151": {
+   "label": "man",
+   "p_female": 0.1,
+   "n_crops": 4
+  },
+  "152": {
+   "label": "man",
+   "p_female": 0.19,
+   "n_crops": 7
+  },
+  "153": {
+   "label": "woman",
+   "p_female": 0.366,
+   "n_crops": 4
+  },
+  "154": {
+   "label": "man",
+   "p_female": 0.118,
+   "n_crops": 5
+  },
+  "155": {
+   "label": "man",
+   "p_female": 0.236,
+   "n_crops": 10
+  },
+  "156": {
+   "label": "man",
+   "p_female": 0.098,
+   "n_crops": 5
+  },
+  "157": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 10
+  },
+  "158": {
+   "label": "woman",
+   "p_female": 0.336,
+   "n_crops": 5
+  },
+  "159": {
+   "label": "man",
+   "p_female": 0.225,
+   "n_crops": 10
+  },
+  "160": {
+   "label": "man",
+   "p_female": 0.089,
+   "n_crops": 10
+  },
+  "161": {
+   "label": "man",
+   "p_female": 0.051,
+   "n_crops": 10
+  },
+  "162": {
+   "label": "man",
+   "p_female": 0.206,
+   "n_crops": 8
+  },
+  "163": {
+   "label": "woman",
+   "p_female": 0.323,
+   "n_crops": 2
+  },
+  "164": {
+   "label": "woman",
+   "p_female": 0.288,
+   "n_crops": 6
+  },
+  "165": {
+   "label": "man",
+   "p_female": 0.178,
+   "n_crops": 10
+  },
+  "166": {
+   "label": "man",
+   "p_female": 0.091,
+   "n_crops": 8
+  },
+  "167": {
+   "label": "man",
+   "p_female": 0.011,
+   "n_crops": 10
+  },
+  "168": {
+   "label": "woman",
+   "p_female": 0.707,
+   "n_crops": 10
+  },
+  "169": {
+   "label": "man",
+   "p_female": 0.108,
+   "n_crops": 10
+  },
+  "170": {
+   "label": "man",
+   "p_female": 0.127,
+   "n_crops": 5
+  },
+  "171": {
+   "label": "man",
+   "p_female": 0.114,
+   "n_crops": 10
+  },
+  "172": {
+   "label": "man",
+   "p_female": 0.198,
+   "n_crops": 3
+  },
+  "173": {
+   "label": "woman",
+   "p_female": 0.595,
+   "n_crops": 10
+  },
+  "174": {
+   "label": "woman",
+   "p_female": 0.546,
+   "n_crops": 10
+  },
+  "175": {
+   "label": "man",
+   "p_female": 0.192,
+   "n_crops": 4
+  },
+  "176": {
+   "label": "woman",
+   "p_female": 0.674,
+   "n_crops": 10
+  },
+  "177": {
+   "label": "man",
+   "p_female": 0.175,
+   "n_crops": 2
+  },
+  "178": {
+   "label": "woman",
+   "p_female": 0.541,
+   "n_crops": 4
+  },
+  "179": {
+   "label": "man",
+   "p_female": 0.035,
+   "n_crops": 1
+  },
+  "180": {
+   "label": "woman",
+   "p_female": 0.321,
+   "n_crops": 5
+  },
+  "181": {
+   "label": "woman",
+   "p_female": 0.623,
+   "n_crops": 4
+  },
+  "182": {
+   "label": "man",
+   "p_female": 0.041,
+   "n_crops": 6
+  },
+  "183": {
+   "label": "woman",
+   "p_female": 0.382,
+   "n_crops": 3
+  },
+  "184": {
+   "label": "woman",
+   "p_female": 0.252,
+   "n_crops": 4
+  },
+  "185": {
+   "label": "woman",
+   "p_female": 0.978,
+   "n_crops": 4
+  },
+  "186": {
+   "label": "man",
+   "p_female": 0.029,
+   "n_crops": 2
+  },
+  "187": {
+   "label": "woman",
+   "p_female": 0.343,
+   "n_crops": 2
+  },
+  "188": {
+   "label": "man",
+   "p_female": 0.027,
+   "n_crops": 1
+  }
+ }
+}

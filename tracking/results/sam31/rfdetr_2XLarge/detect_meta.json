@@ -1,0 +1,19 @@
+{
+ "detector": "rf-detr-seg-2xlarge",
+ "resolution": 768,
+ "fp16_optimized": true,
+ "threshold": 0.15,
+ "batch": 1,
+ "gpu": "NVIDIA L4",
+ "n_frames": 300,
+ "n_dets": 9435,
+ "dets_per_frame": 31.45,
+ "load_s": 5.6,
+ "frame_read_s": 1.08,
+ "detector_s": 13.06,
+ "rle_io_s": 8.92,
+ "wall_s": 23.09,
+ "detector_fps": 22.97,
+ "gpu_peak_gb": 0.388,
+ "host_rss_peak_gb": 2.221
+}

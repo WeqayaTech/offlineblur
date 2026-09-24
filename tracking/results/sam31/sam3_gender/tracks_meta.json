@@ -1,0 +1,40 @@
+{
+ "tracker": "sam3",
+ "model_id": "/workspace/.cache/huggingface/hub/models--facebook--sam3/snapshots/3c879f39826c281e95690f02c7821c4de09afae7/",
+ "prompts": [
+  "woman",
+  "man",
+  "person"
+ ],
+ "dtype": "bfloat16",
+ "state_device": "cpu",
+ "chunk_frames": 0,
+ "chunk_overlap": 0,
+ "n_chunks": 1,
+ "stitch_iou": 0.3,
+ "n_stitched": 0,
+ "reid_window": 60,
+ "reid_iou": 0.3,
+ "n_relinked": 0,
+ "memory_keep": 20,
+ "cond_keep": 0,
+ "drop_removed": true,
+ "n_obs": 15444,
+ "n_frames": 300,
+ "n_tracks": 122,
+ "n_tracks_per_prompt": {
+  "woman": 28,
+  "man": 36,
+  "person": 58
+ },
+ "n_obs_per_prompt": {
+  "woman": 3669,
+  "man": 4701,
+  "person": 7074
+ },
+ "min_score": 0.0,
+ "config_overrides": {},
+ "seconds": 1688.8,
+ "sec_per_frame": 5.629,
+ "masks": "/root/tracking/out/ali-dawah-street-interview-source/sam3_gender/masks.jsonl"
+}
