@@ -21,3 +21,10 @@ tracking/out/
 tracking/videos/
 tracking/weights/
 tracking/MOTIP/
+out_sam3/
+
+# tracking results: run metadata (json/jsonl metrics, track dumps, labels) and videos stay local.
+# Only the written briefs (*.md) are versioned; the benchmark report lives in tracking/reports/.
+tracking/results/**
+!tracking/results/**/
+!tracking/results/**/*.md
