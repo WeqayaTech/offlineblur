@@ -23,6 +23,8 @@ Same clip everywhere: `ali-dawah-street-interview-source.mp4` (300 frames, 1280x
 | 08 fast, McByte threshold sweep | RF-DETR-Seg 2XL | McByte box, 0.5→0.2 | CLIP | RTX PRO 6000 | 72–86 Hz | 4.8 GB | not scored | not scored |
 | 09 fast, lost tracks kept 4 s | RF-DETR-Seg 2XL | McByte box, lost 1 s → 4 s | CLIP | L4 | 19.5–20 Hz | 4.7 GB | not scored | not scored |
 | 10 fast, association tuning (4 s) | RF-DETR-Seg 2XL | McByte, buffered IoU 0.5 + 2nd round 0.3 | CLIP | L4 | 20 Hz | 4.7 GB | not scored | not scored |
+| 11 fast, classifier swap | RF-DETR-Seg 2XL | McByte, as 10 | CLIP ViT-L 18.8 Hz vs **PE-Core-L** 17.4 Hz | L4 | 17.4–18.8 Hz | 4.7 / 6.1 GB | not scored | not scored |
+| 12 **EdgeTAM** tracker | RF-DETR-Seg 2XL | EdgeTAM, one memory per person | PE-Core-L | L4 | 3.6 Hz | 6.6 GB | best by eye, not scored | not scored |
 
 Rates are frames per second of processing (1 / compute per frame; 07–08 are end to end incl. decode, blur and
 encode, excluding model load). "Women blurred" / "men false-blur" are on the 21 hand-labelled people (labels and
@@ -34,7 +36,10 @@ Suggested comparisons:
 - **Gender decision**: `02/labels_masks_ids.mp4` (prompt, flips per frame) vs `04/labels_masks_ids.mp4` (per-track
   vote) vs `07/labels_masks_ids.mp4` (per-track CLIP).
 - **The product**: every `blur_side_by_side.mp4`, especially 02 vs 05 vs 07.
+- **Tracker, McByte vs EdgeTAM**: `12/labels_mcbyte_left_edgetam_right.mp4` and `12/blur_original_mcbyte_edgetam.mp4`.
+- **Classifier, CLIP vs PE-Core**: `11/labels_clip_left_pecore_right.mp4`.
 - **Occlusion handling**: `09/ids_1s_left_vs_4s_right.mp4` (longer memory alone barely helps) vs
   `10/grid_2x2_*.mp4` (buffered-IoU matching halves identity breaks).
 
 Full write-up with charts: https://claude.ai/artifact/LCjvGwqZ9ZFTy333GXRGkD (tracking/reports/pipeline_benchmarks.html).
+L4 latency of every pipeline, by stage: https://claude.ai/artifact/24RvgFzPcBApVq1oGXroR8 (tracking/reports/l4_pipeline_latency.html).

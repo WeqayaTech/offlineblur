@@ -1,0 +1,358 @@
+<title>L4 Pipeline Latency</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#F4F6F4; --panel:#FFFFFF; --ink:#17211D; --muted:#5E6A63; --rule:#D6DDD8; --rule-soft:#E6EBE7;
+  --accent:#1C6B5A; --accent-soft:#E1EFEA; --good:#2E7A3E; --good-soft:#E3F1E4; --bad:#B2521D; --bad-soft:#F7E6DB;
+  --warn:#8A6A10; --warn-soft:#F4EDD4; --bar:#1C6B5A; --bar-alt:#9FB8AE; --track:#EEF2EF;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#A9B3AE;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --cond:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ground:#101513; --panel:#161D1A; --ink:#E3EAE5; --muted:#98A59D; --rule:#2B3530; --rule-soft:#222B27;
+    --accent:#5CC0A2; --accent-soft:#1B2E28; --good:#78C487; --good-soft:#1C2B1F; --bad:#E58C5A; --bad-soft:#35231A;
+    --warn:#D9B955; --warn-soft:#2E2914; --bar:#5CC0A2; --bar-alt:#3F5C52; --track:#1D2622;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#56625C;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ground:#101513; --panel:#161D1A; --ink:#E3EAE5; --muted:#98A59D; --rule:#2B3530; --rule-soft:#222B27;
+  --accent:#5CC0A2; --accent-soft:#1B2E28; --good:#78C487; --good-soft:#1C2B1F; --bad:#E58C5A; --bad-soft:#35231A;
+  --warn:#D9B955; --warn-soft:#2E2914; --bar:#5CC0A2; --bar-alt:#3F5C52; --track:#1D2622;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#56625C;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55}
+.wrap{max-width:1120px;margin:0 auto;padding-inline:20px;padding-block:36px 64px;display:flex;flex-direction:column;gap:44px}
+h1,h2,h3{font-family:var(--cond);text-wrap:balance;margin:0;letter-spacing:-.005em}
+h1{font-size:clamp(28px,4vw,40px);font-weight:700;line-height:1.1}
+h2{font-size:22px;font-weight:600}
+h3{font-size:16px;font-weight:600}
+p{margin:0;max-width:70ch}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:17px;max-width:72ch}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.meta b{color:var(--ink);font-weight:500}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:1px solid var(--rule);padding-bottom:28px}
+section{display:flex;flex-direction:column;gap:16px}
+.sec-head{display:flex;flex-direction:column;gap:6px}
+.sec-head p{color:var(--muted)}
+.verdict{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media (max-width:1000px){.verdict{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:520px){.verdict{grid-template-columns:1fr}}
+.v{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.v .num{font-family:var(--mono);font-size:26px;font-weight:500;color:var(--accent);font-variant-numeric:tabular-nums}
+.v .num small{font-size:14px;color:var(--muted);font-weight:400}
+.v p{font-size:14px;color:var(--muted)}
+.v p b{color:var(--ink);font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:16px 18px}
+.scroll{overflow-x:auto;border:1px solid var(--rule);border-radius:6px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule-soft);vertical-align:top}
+thead th{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);background:var(--ground);border-bottom:1px solid var(--rule);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.name{font-weight:600}
+.sub{display:block;color:var(--muted);font-size:12.5px;font-weight:400;margin-top:2px}
+tr.group td{background:var(--ground);font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding-top:12px}
+tr.pick td:first-child{box-shadow:inset 3px 0 0 var(--accent)}
+.chip{display:inline-block;font-family:var(--mono);font-size:11.5px;padding:1px 7px;border-radius:3px;white-space:nowrap}
+.good{background:var(--good-soft);color:var(--good)}
+.bad{background:var(--bad-soft);color:var(--bad)}
+.warn{background:var(--warn-soft);color:var(--warn)}
+.acc{background:var(--accent-soft);color:var(--accent)}
+.note{font-size:13px;color:var(--muted)}
+code{font-family:var(--mono);font-size:12.5px;background:var(--rule-soft);padding:1px 5px;border-radius:3px}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;max-width:74ch}
+ul.plain li::marker{color:var(--accent)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px}
+
+/* bar charts (HTML, so labels stay legible at phone width) */
+.bars{display:flex;flex-direction:column;gap:10px}
+.brow{display:grid;grid-template-columns:minmax(150px,260px) 1fr;gap:6px 14px;align-items:center}
+.blabel{font-size:13.5px;line-height:1.3}
+.blabel .sub{font-size:12px}
+.btrack{position:relative;height:22px}
+.bfill{position:absolute;left:0;top:3px;bottom:3px;border-radius:0 4px 4px 0;background:var(--bar)}
+.bfill.alt{background:var(--bar-alt)}
+.bval{position:absolute;z-index:1;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;margin-left:4px;padding:0 4px;background:var(--panel);border-radius:3px}
+.axis{display:grid;grid-template-columns:minmax(150px,260px) 1fr;gap:14px;margin-top:4px}
+.axis .ticks{position:relative;height:18px;border-top:1px solid var(--rule)}
+.axis .ticks span{position:absolute;top:3px;transform:translateX(-50%);font-family:var(--mono);font-size:11px;color:var(--muted)}
+.gridlayer{position:absolute;inset:0;pointer-events:none}
+.gl{position:absolute;top:-6px;bottom:-6px;width:1px;background:var(--rule-soft)}
+.ref{position:absolute;top:-6px;bottom:-6px;width:0;border-left:1.5px dashed var(--bad)}
+.ref.target{border-left-color:var(--accent)}
+.stack{position:absolute;left:0;top:3px;bottom:3px;display:flex;gap:2px}
+.seg{height:100%;min-width:2px}
+.seg:last-child{border-radius:0 4px 4px 0}
+.seg:hover,.bfill:hover{filter:brightness(1.08)}
+.legend{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:12.5px;color:var(--muted);align-items:center}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.legend .dash{width:16px;height:0;border-top:1.5px dashed var(--bad);border-radius:0;vertical-align:3px}
+.legend .dash.t{border-top-color:var(--accent)}
+#tip{position:fixed;z-index:10;pointer-events:none;background:var(--ink);color:var(--ground);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:4px;max-width:280px;line-height:1.4}
+@media (max-width:640px){
+  .wrap{padding-inline:16px}
+  th,td{padding:8px 9px}
+  .brow,.axis{grid-template-columns:1fr}
+  .axis > div:first-child{display:none}
+}
+@media (prefers-reduced-motion:no-preference){ .bfill,.stack{transition:filter .15s} }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">OfflineBlur · tracking · NVIDIA L4 24 GB</div>
+  <h1>L4 pipeline latency</h1>
+  <p class="lede">Every person-blur pipeline we have run on the L4, from the SAM 3 trackers to the new
+  RF-DETR + EdgeTAM + PE-Core pipeline, measured as <b>milliseconds of compute per video frame</b> and the
+  resulting <b>rate in Hz</b>. A 25 fps video needs 25 Hz to keep up in real time; the stated goal is 100 Hz.</p>
+  <div class="meta">
+    <span>clip <b>ali-dawah-street-interview-source.mp4</b></span>
+    <span><b>300</b> frames · <b>1280×720</b> · <b>25 fps</b> · 12 s · ~60 people</span>
+    <span>runs 2026-09-19 → 2026-09-24</span>
+  </div>
+</header>
+
+<section>
+  <div class="verdict">
+    <div class="v"><div class="num">20.1 <small>Hz</small></div>
+      <p><b>Fastest on the L4:</b> RF-DETR-Seg 2XL + McByte + CLIP, in memory (run 10). 50 ms per frame, still below real time.</p></div>
+    <div class="v"><div class="num">3.6 <small>Hz</small></div>
+      <p><b>Latest, EdgeTAM + PE-Core (run 12):</b> judged most accurate by eye, but EdgeTAM uses <b>218 of its 278 ms</b> per frame.</p></div>
+    <div class="v"><div class="num">9.3 <small>ms / person</small></div>
+      <p><b>EdgeTAM's real cost:</b> one memory step per live person per frame. Batching people does not reduce it on the L4, because the GPU is already fully busy.</p></div>
+    <div class="v"><div class="num">112× <small>slowest → fastest</small></div>
+      <p><b>Range:</b> SAM 3 with gender prompts ran at 0.18 Hz (5.6 s per frame); the in-memory RF-DETR pipeline runs at 20.1 Hz.</p></div>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Rate per pipeline</h2>
+    <p>Frames processed per second on the L4, log scale. Dashed lines: real time for this 25 fps clip, and the 100 Hz goal.
+    Hover a bar for ms per frame.</p>
+  </div>
+  <div class="panel">
+    <div class="legend" style="margin-bottom:12px">
+      <span><i style="background:var(--bar)"></i>end to end (decode → blur → encode)</span>
+      <span><i style="background:var(--bar-alt)"></i>model compute only (scripts, SAM runs)</span>
+      <span><i class="dash"></i>25 Hz real time</span>
+      <span><i class="dash t"></i>100 Hz goal</span>
+    </div>
+    <div class="bars" id="rate"></div>
+    <div class="axis"><div></div><div class="ticks" id="rate-ticks"></div></div>
+  </div>
+  <p class="note">Runs 01–05 and 06 report model compute per frame (SAM runs exclude writing masks; 06 excludes the disk
+  hand-off between its scripts, 8.3 Hz as run). Runs 09–12 are end to end in one process, excluding model load
+  (10–16 s, paid once per process).</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>Where each millisecond goes</h2>
+    <p>Per-frame compute of the RF-DETR pipelines, split by stage. The detector is the same in all of them; what changes
+    is the tracker and the classifier. Decoding runs in its own thread and overlaps, so it is not counted.</p>
+  </div>
+  <div class="panel">
+    <div class="legend" style="margin-bottom:12px" id="stage-legend"></div>
+    <div class="bars" id="stages"></div>
+    <div class="axis"><div></div><div class="ticks" id="stage-ticks"></div></div>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Run</th><th class="n">Detector</th><th class="n">Tracker</th><th class="n">Classifier</th><th class="n">Masks + views</th><th class="n">Blur + encode</th><th class="n">Other</th><th class="n">Total ms</th><th class="n">Hz</th></tr></thead>
+      <tbody id="stage-table"></tbody>
+    </table>
+  </div>
+  <p class="note">EdgeTAM's tracker share splits into the image encoder (16.3 ms), one memory step per live person
+  (200.0 ms for ~26 live tracks, ~16 of them visible), starting new people (1.6 ms) and matching detections (0.6 ms).
+  On the 48 s version of the clip the per-person steps rise to 242 ms/frame (more people alive at once): 3.2 Hz.</p>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>All pipelines</h2>
+    <p>Accuracy is on the 21 hand-labelled people of this clip (women blurred = average share of each woman's frames
+    with at least half of her covered; men false-blur = the same for men). Runs 09–12 changed the tracks and have not
+    been re-scored yet.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Run</th><th>Detector + mask</th><th>Tracker</th><th>Gender</th><th class="n">ms / frame</th><th class="n">Hz</th><th class="n">Peak GPU</th><th class="n">Tracks</th><th>Women blurred · men false-blur</th></tr></thead>
+      <tbody id="all"></tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>EdgeTAM up close</h2>
+    <p>Measured on the same L4 (bf16). The image encoder runs once per frame; the memory step runs once per live person.</p>
+  </div>
+  <div class="cols">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>People per call</th><th class="n">ms per call</th><th class="n">ms per person</th></tr></thead>
+        <tbody>
+          <tr><td>1 (as the pipeline runs now)</td><td class="n">9.3</td><td class="n">9.3</td></tr>
+          <tr><td>4 batched</td><td class="n">27.3</td><td class="n">6.8</td></tr>
+          <tr><td>8 batched</td><td class="n">61.0</td><td class="n">7.6</td></tr>
+          <tr><td>16 batched</td><td class="n">143.5</td><td class="n">9.0</td></tr>
+          <tr><td>16 separate calls</td><td class="n">149.2</td><td class="n">9.3</td></tr>
+          <tr><td>32 batched</td><td class="n">305.2</td><td class="n">9.5</td></tr>
+          <tr><td>image encoder, per frame</td><td class="n">8.2</td><td class="n">—</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Frame (48 s video)</th><th class="n">Live</th><th class="n">EdgeTAM memory</th><th class="n">GPU</th><th class="n">Host RAM</th></tr></thead>
+        <tbody>
+          <tr><td>100</td><td class="n">22</td><td class="n">397</td><td class="n">3.66 GB</td><td class="n">3.15 GB</td></tr>
+          <tr><td>600</td><td class="n">31</td><td class="n">470</td><td class="n">3.95 GB</td><td class="n">4.46 GB</td></tr>
+          <tr><td>1199</td><td class="n">28</td><td class="n">482</td><td class="n">4.23 GB</td><td class="n">5.83 GB</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <ul class="plain">
+    <li><b>Batching people does not help on the L4:</b> 16 people cost the same batched or one by one. The step is GPU
+      compute (attention over a 64×64 feature map per person), not Python or kernel-launch overhead.</li>
+    <li><b>EdgeTAM memory is bounded</b> (entries flat at ~450–480; 1 prompt frame + last 17 frames per live person).
+      The pipeline around it grows: every decoded frame is kept for the blur pass (~2.7 MB/frame of host RAM) and every
+      mask stays on the GPU until the video ends (~0.5 MB/frame), because the blur waits for the per-person
+      classification.</li>
+    <li>Upstream EdgeTAM crashes when more than one person is batched (<code>.view</code> on an expanded tensor in
+      <code>perceiver.py</code>); the pod copy uses <code>.reshape</code>, which gives identical results.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="sec-head">
+    <h2>What 100 Hz means</h2>
+    <p>100 Hz leaves <b>10 ms per frame</b> for everything. On the L4 today:</p>
+  </div>
+  <ul class="plain">
+    <li>RF-DETR-Seg 2XL alone takes <b>25 ms</b> per frame; the PE-Core classifier <b>16–21 ms</b>; EdgeTAM <b>218 ms</b>.</li>
+    <li>The McByte pipeline reached <b>93 Hz</b> (48 s video) on an RTX PRO 6000, where RF-DETR ran about 5× faster than on the L4.</li>
+    <li>For the EdgeTAM pipeline the per-person memory step dominates, so its cost scales with how many people are
+      tracked and how often each is stepped. Making it reach 100 Hz is the next stage.</li>
+  </ul>
+</section>
+
+<footer class="note">Sources: per-run metadata of <code>fast_blur.py</code> / <code>fast_blur_edgetam.py</code> and the
+PIPELINE.md briefs in <code>tracking/results/by_pipeline/</code>; EdgeTAM microbenchmark on the same pod. Earlier
+cross-GPU report: <a href="https://claude.ai/artifact/LCjvGwqZ9ZFTy333GXRGkD" style="color:var(--accent)">pipeline benchmarks</a>.</footer>
+</div>
+<div id="tip" hidden></div>
+
+<script>
+const RUNS = [
+  {id:"01", name:"SAM 3, person only", sub:"built-in tracker", det:"SAM 3 (person)", trk:"built in", g:"—", ms:2590, hz:0.39, gpu:8.4, tracks:null, acc:null, kind:"alt", group:"SAM 3 / SAM 3.1 (promptable)"},
+  {id:"01", name:"SAM 3.1, person only", sub:"built-in tracker", det:"SAM 3.1 (person)", trk:"built in", g:"—", ms:540, hz:1.84, gpu:15.1, tracks:null, acc:null, kind:"alt"},
+  {id:"02", name:"SAM 3, gender prompts", sub:"tracked", det:"SAM 3 (woman, man, person)", trk:"built in", g:"the prompt", ms:5630, hz:0.18, gpu:16.4, tracks:null, acc:[0.799,0.214], kind:"alt"},
+  {id:"02", name:"SAM 3.1, gender prompts", sub:"tracked (Object Multiplex)", det:"SAM 3.1 (woman, man, person)", trk:"built in", g:"the prompt", ms:1460, hz:0.69, gpu:16.2, tracks:null, acc:[0.737,0.168], kind:"alt"},
+  {id:"03", name:"SAM 3.1 detector only", sub:"no tracking, flickers", det:"SAM 3.1 (woman)", trk:"none", g:"the prompt", ms:259, hz:3.9, gpu:8.1, tracks:null, acc:[0.743,0.099], kind:"alt"},
+  {id:"04", name:"SAM 3.1 det + McByte masks", sub:"per-track vote", det:"SAM 3.1 (woman, man, child)", trk:"McByte + SAM/Cutie", g:"per-track argmax", ms:742, hz:1.35, gpu:8.3, tracks:110, acc:[0.728,0.026], kind:"alt"},
+  {id:"05", name:"SAM 3.1 det + McByte box", sub:"woman share ≥ 0.4", det:"SAM 3.1 (woman, man, child)", trk:"McByte box", g:"woman share ≥ 0.4", ms:373, hz:2.7, gpu:8.3, tracks:108, acc:[0.731,0.039], kind:"alt"},
+  {id:"06", name:"RF-DETR + McByte + CLIP", sub:"separate scripts", det:"RF-DETR-Seg 2XL", trk:"McByte box", g:"CLIP ViT-L/14-336", ms:88, hz:11.4, gpu:3.1, tracks:60, acc:[0.696,0.029], kind:"alt", group:"RF-DETR-Seg detector + tracker + per-person classifier"},
+  {id:"09", name:"RF-DETR + McByte + CLIP", sub:"in memory, lost tracks 4 s", det:"RF-DETR-Seg 2XL", trk:"McByte box, lost 4 s", g:"CLIP ViT-L/14-336", ms:51.3, hz:19.5, gpu:4.7, tracks:60, acc:null},
+  {id:"10", name:"RF-DETR + McByte + CLIP", sub:"buffered IoU 0.5 / 2nd round 0.3", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"CLIP ViT-L/14-336", ms:49.8, hz:20.1, gpu:4.7, tracks:48, acc:null},
+  {id:"11", name:"RF-DETR + McByte + CLIP", sub:"latest McByte settings", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"CLIP ViT-L/14-336", ms:53.2, hz:18.8, gpu:4.7, tracks:48, acc:null},
+  {id:"11", name:"RF-DETR + McByte + PE-Core", sub:"classifier swapped", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"PE-Core-L/14-336", ms:57.5, hz:17.4, gpu:6.05, tracks:48, acc:null},
+  {id:"12", name:"RF-DETR + EdgeTAM + PE-Core", sub:"latest · tracker swapped", det:"RF-DETR-Seg 2XL", trk:"EdgeTAM (per-person memory)", g:"PE-Core-L/14-336", ms:277.8, hz:3.6, gpu:6.58, tracks:54, acc:"eye", pick:true},
+];
+const STAGES = [
+  {k:"det", name:"Detector (RF-DETR)", c:"var(--s1)"},
+  {k:"trk", name:"Tracker", c:"var(--s2)"},
+  {k:"cls", name:"Classifier", c:"var(--s3)"},
+  {k:"crop", name:"Masks + views", c:"var(--s4)"},
+  {k:"enc", name:"Blur + encode", c:"var(--s5)"},
+  {k:"oth", name:"Other", c:"var(--s6)"},
+];
+const BREAK = [
+  {id:"06", name:"McByte + CLIP", sub:"scripts (compute)", det:44, trk:3, cls:41, crop:0, enc:0, oth:0, hz:11.4},
+  {id:"10", name:"McByte + CLIP", sub:"buffered IoU", det:25.06, trk:1.47, cls:15.52, crop:1.89, enc:4.54, oth:1.27, hz:20.1},
+  {id:"11", name:"McByte + CLIP", sub:"latest settings", det:25.06, trk:1.35, cls:16.04, crop:1.66, enc:7.0, oth:2.08, hz:18.8},
+  {id:"11", name:"McByte + PE-Core", sub:"classifier swapped", det:25.19, trk:1.39, cls:20.96, crop:1.74, enc:6.25, oth:1.94, hz:17.4},
+  {id:"12", name:"EdgeTAM + PE-Core", sub:"12 s clip", det:26.17, trk:218.5, cls:21.44, crop:1.89, enc:8.18, oth:1.6, hz:3.6, pick:true},
+  {id:"12", name:"EdgeTAM + PE-Core", sub:"48 s video", det:26.83, trk:256.15, cls:15.66, crop:1.58, enc:8.62, oth:3.66, hz:3.2},
+];
+
+const tip = document.getElementById("tip");
+function hover(el, html){
+  el.addEventListener("mousemove", e => { tip.innerHTML = html; tip.hidden = false;
+    const x = Math.min(e.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+    tip.style.left = x + "px"; tip.style.top = (e.clientY + 14) + "px"; });
+  el.addEventListener("mouseleave", () => { tip.hidden = true; });
+}
+const fmt = (v, d=1) => v.toFixed(d);
+
+// ---- rate chart (log scale 0.1 .. 100 Hz)
+const LMIN = Math.log10(0.1), LMAX = Math.log10(150);
+const lx = v => 100 * (Math.log10(v) - LMIN) / (LMAX - LMIN);
+const rate = document.getElementById("rate");
+const sorted = [...RUNS].sort((a, b) => a.hz - b.hz);
+for (const r of sorted){
+  const row = document.createElement("div"); row.className = "brow";
+  row.innerHTML = `<div class="blabel"><span class="name">${r.id} · ${r.name}</span><span class="sub">${r.sub}</span></div>
+    <div class="btrack"><div class="gridlayer">${[0.1,0.3,1,3,10,30,100].map(t=>`<div class="gl" style="left:${lx(t)}%"></div>`).join("")}
+    <div class="ref" style="left:${lx(25)}%"></div><div class="ref target" style="left:${lx(100)}%"></div></div>
+    <div class="bfill ${r.kind==="alt"?"alt":""}" style="width:${lx(r.hz)}%"></div>
+    <div class="bval" style="left:${lx(r.hz)}%">${r.hz} Hz</div></div>`;
+  rate.appendChild(row);
+  hover(row.querySelector(".bfill"), `${r.id} ${r.name}<br>${r.hz} Hz · ${fmt(r.ms, r.ms < 100 ? 1 : 0)} ms/frame`);
+}
+document.getElementById("rate-ticks").innerHTML =
+  [0.1,0.3,1,3,10,30,100].map(t=>`<span style="left:${lx(t)}%">${t}</span>`).join("") +
+  `<span style="left:100%;transform:translateX(-100%)">Hz</span>`;
+
+// ---- stage chart (linear 0 .. 320 ms)
+const SMAX = 320, sx = v => 100 * v / SMAX;
+document.getElementById("stage-legend").innerHTML = STAGES.map(s=>`<span><i style="background:${s.c}"></i>${s.name}</span>`).join("");
+const st = document.getElementById("stages"), tb = document.getElementById("stage-table");
+for (const b of BREAK){
+  const total = STAGES.reduce((a, s) => a + b[s.k], 0);
+  const row = document.createElement("div"); row.className = "brow";
+  row.innerHTML = `<div class="blabel"><span class="name">${b.id} · ${b.name}</span><span class="sub">${b.sub}</span></div>
+    <div class="btrack"><div class="gridlayer">${[0,50,100,150,200,250,300].map(t=>`<div class="gl" style="left:${sx(t)}%"></div>`).join("")}
+    <div class="ref target" style="left:${sx(10)}%"></div></div>
+    <div class="stack" style="width:${sx(total)}%">${STAGES.filter(s=>b[s.k]>0).map(s=>`<div class="seg" data-k="${s.k}" style="flex:${b[s.k]} 0 0;background:${s.c}"></div>`).join("")}</div>
+    <div class="bval" style="left:${sx(total)}%">${fmt(total)} ms · ${b.hz} Hz</div></div>`;
+  st.appendChild(row);
+  row.querySelectorAll(".seg").forEach(seg => { const s = STAGES.find(x => x.k === seg.dataset.k);
+    hover(seg, `${b.id} ${b.name}<br>${s.name}: ${fmt(b[s.k])} ms (${Math.round(100*b[s.k]/total)}%)`); });
+  const tr = document.createElement("tr"); if (b.pick) tr.className = "pick";
+  tr.innerHTML = `<td><span class="name">${b.id} · ${b.name}</span><span class="sub">${b.sub}</span></td>` +
+    STAGES.map(s=>`<td class="n">${b[s.k] ? fmt(b[s.k]) : "—"}</td>`).join("") +
+    `<td class="n"><b>${fmt(total)}</b></td><td class="n">${b.hz}</td>`;
+  tb.appendChild(tr);
+}
+document.getElementById("stage-ticks").innerHTML =
+  [0,50,100,150,200,250,300].map(t=>`<span style="left:${sx(t)}%">${t}</span>`).join("") +
+  `<span style="left:${sx(10)}%;top:-18px;color:var(--accent)">10 ms = 100 Hz</span>`;
+
+// ---- full table
+const all = document.getElementById("all");
+for (const r of RUNS){
+  if (r.group){ const g = document.createElement("tr"); g.className = "group"; g.innerHTML = `<td colspan="9">${r.group}</td>`; all.appendChild(g); }
+  const tr = document.createElement("tr"); if (r.pick) tr.className = "pick";
+  let acc = `<span class="chip warn">not scored</span>`;
+  if (Array.isArray(r.acc)) acc = `<span class="chip ${r.acc[0] >= 0.72 ? "good" : "acc"}">${r.acc[0].toFixed(3)}</span> · <span class="chip ${r.acc[1] <= 0.05 ? "good" : "bad"}">${r.acc[1].toFixed(3)}</span>`;
+  else if (r.acc === "eye") acc = `<span class="chip acc">not scored · best by eye</span>`;
+  else if (r.g === "—") acc = `<span class="note">no gender step</span>`;
+  tr.innerHTML = `<td><span class="name">${r.id} · ${r.name}</span><span class="sub">${r.sub}</span></td>
+    <td>${r.det}</td><td>${r.trk}</td><td>${r.g}</td><td class="n">${fmt(r.ms, r.ms < 100 ? 1 : 0)}</td>
+    <td class="n"><b>${r.hz}</b></td><td class="n">${r.gpu} GB</td><td class="n">${r.tracks ?? "—"}</td><td>${acc}</td>`;
+  all.appendChild(tr);
+}
+</script>

@@ -45,7 +45,9 @@ def main():
     ap.add_argument("--gt", required=True)
     ap.add_argument("--gt-masks", required=True, help="masks.jsonl of the run the GT track ids belong to")
     ap.add_argument("--reference", required=True, help="masks.jsonl holding the reference person layer")
-    ap.add_argument("--reference-prompt", default="person")
+    ap.add_argument("--reference-prompt", default="person",
+                    help="prompt of the reference person layer; 'any' = every row (e.g. a fast_blur.py --dump-masks "
+                         "run, whose rows carry the gender label as prompt)")
     ap.add_argument("--run", action="append", required=True, help="NAME=masks.jsonl (blur masks = --blur-prompt)")
     ap.add_argument("--blur-prompt", default="woman")
     ap.add_argument("--cover", type=float, default=0.5)
@@ -54,7 +56,7 @@ def main():
 
     gt = json.loads(Path(a.gt).read_text())
     gt_label = {t: "woman" for t in gt["woman"]} | {t: "man" for t in gt["man"]}
-    ref = by_frame(a.reference, a.reference_prompt)
+    ref = by_frame(a.reference, None if a.reference_prompt == "any" else a.reference_prompt)
     src = by_frame(a.gt_masks)
 
     # carry GT onto reference identities: majority reference id per GT track, over frames with IoU >= 0.5

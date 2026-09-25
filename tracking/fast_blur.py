@@ -116,7 +116,6 @@ def main():
     a = ap.parse_args()
 
     import cv2
-    import open_clip
     import rfdetr
     import supervision as sv
     import torch
@@ -138,21 +137,8 @@ def main():
     res = int(rf.model.resolution)
     mean = torch.tensor(rf.means, device=dev).view(1, 3, 1, 1)
     std = torch.tensor(rf.stds, device=dev).view(1, 3, 1, 1)
-    clip, _, clip_pre = open_clip.create_model_and_transforms(a.clip_model, pretrained=a.clip_pretrained, device="cuda")
-    clip.eval()
-    csize = clip.visual.image_size
-    csize = csize[0] if isinstance(csize, (tuple, list)) else csize
-    cmean = torch.tensor(clip.visual.image_mean or (0.48145466, 0.4578275, 0.40821073), device=dev).view(1, 3, 1, 1)
-    cstd = torch.tensor(clip.visual.image_std or (0.26862954, 0.26130258, 0.27577711), device=dev).view(1, 3, 1, 1)
-    tok = open_clip.get_tokenizer(a.clip_model)
-    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
-        txt = []
-        for c in CLASSES:
-            e = clip.encode_text(tok([t.format(c) for t in TEMPLATES]).cuda()).float()
-            e = e / e.norm(dim=-1, keepdim=True)
-            txt.append(e.mean(0) / e.mean(0).norm())
-        txt = torch.stack(txt)
-        scale = clip.logit_scale.exp().float()
+    clf = load_classifier(a.clip_model, a.clip_pretrained, dev)
+    csize = clf["size"]
     if a.lost_seconds is not None:
         a.lost_buffer = int(round(a.lost_seconds * 30))
     lost_frames = int(np.ceil(fps / 30.0 * a.lost_buffer)) if a.lost_buffer > 0 else 0   # McByte's own rescaling
@@ -268,34 +254,7 @@ def main():
 
     # ---------------- classify: K spread views per track, one batched CLIP pass
     with T("clip", sync=True):
-        views, owners = [], []
-        for tid, wins in cands.items():
-            chosen = []
-            for q_, f, c in sorted(wins.values(), key=lambda t: -t[0]):
-                if all(abs(f - g) >= a.min_gap for g, _ in chosen):
-                    chosen.append((f, c))
-                    if len(chosen) == a.k:
-                        break
-            for f, c in chosen:
-                views.append(c)
-                owners.append(tid)
-        probs = []
-        with torch.autocast("cuda", dtype=torch.float16):
-            for i in range(0, len(views), 128):
-                xb = torch.stack(views[i:i + 128]).float().div_(255)
-                xb = (xb - cmean) / cstd
-                e = clip.encode_image(xb).float()
-                e = e / e.norm(dim=-1, keepdim=True)
-                probs.append(torch.softmax(e @ txt.T * scale, -1))
-        probs = torch.cat(probs).cpu().numpy() if probs else np.zeros((0, 4))
-    acc = defaultdict(list)
-    for tid, p in zip(owners, probs):
-        acc[tid].append(p)
-    labels = {}
-    for tid, ps in acc.items():
-        p = np.mean(ps, 0)
-        pf = float(p[0] + p[2])
-        labels[tid] = {"label": "woman" if pf >= a.blur_min else "man", "p_female": round(pf, 3), "n_crops": len(ps)}
+        labels, n_views = classify_tracks(clf, cands, a.k, a.min_gap, a.blur_min)
     women = {t for t, v in labels.items() if v["label"] == "woman"}
     filled = set()
     if a.fill_gaps:
@@ -360,8 +319,8 @@ def main():
         "high_conf": a.high_conf, "threshold": a.threshold, "lost_buffer": a.lost_buffer,
         "lost_frames": lost_frames, "iou": a.iou, "biou_buffer": a.biou_buffer, "assoc1": a.assoc1,
         "assoc2": a.assoc2, "assoc_unconfirmed": a.assoc_unconfirmed, "lost_seconds": round(lost_frames / fps, 2), "fps": round(fps, 3), "activation": a.activation, "fill_gaps": a.fill_gaps, "filled": len(filled),
-        "clip": f"{a.clip_model} ({a.clip_pretrained})", "tracks": len(labels),
-        "women": len(women), "crops": len(views), "persons": n_det, "load_s": round(load_s, 1),
+        "clip": f"{a.clip_model} ({a.clip_pretrained})", "k": a.k, "blur_min": a.blur_min, "tracks": len(labels),
+        "women": len(women), "crops": n_views, "persons": n_det, "load_s": round(load_s, 1),
         "pass1_s": round(pass1_s, 2), "pass2_s": round(pass2_s, 2), "total_s": round(total, 2),
         "stage_ms_per_frame": {k: round(1000 * v / n_frames, 2) for k, v in sorted(t.items())},
         "end_to_end_hz": round(n_frames / total, 1), "pass1_hz": round(n_frames / pass1_s, 1),
@@ -391,6 +350,68 @@ def main():
                     r = mu.encode(np.asfortranarray(m.cpu().numpy().astype(np.uint8)))
                     fh.write(json.dumps({"f": f, "tid": tid, "prompt": lab,
                                          "rle": {"size": [H, W], "counts": r["counts"].decode()}}) + "\n")
+
+
+def load_classifier(model_name, pretrained, dev):
+    """open_clip zero-shot gender classifier (OpenAI CLIP, PE-Core, ...): model, text embeddings of CLASSES averaged
+    over TEMPLATES, and the model's own input size and normalisation."""
+    import open_clip
+    import torch
+    clip, _, _ = open_clip.create_model_and_transforms(model_name, pretrained=pretrained, device="cuda")
+    clip.eval()
+    # size and normalisation from the model's own preprocess config: OpenAI CLIP and PE-Core (mean = std = 0.5)
+    # differ, and a wrong normalisation does not error, it just shifts every probability
+    pp = open_clip.get_model_preprocess_cfg(clip)
+    size = pp.get("size", clip.visual.image_size)
+    size = size[0] if isinstance(size, (tuple, list)) else size
+    mean = torch.tensor(pp.get("mean") or (0.48145466, 0.4578275, 0.40821073), device=dev).view(1, 3, 1, 1)
+    std = torch.tensor(pp.get("std") or (0.26862954, 0.26130258, 0.27577711), device=dev).view(1, 3, 1, 1)
+    tok = open_clip.get_tokenizer(model_name)
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
+        txt = []
+        for c in CLASSES:
+            e = clip.encode_text(tok([t.format(c) for t in TEMPLATES]).cuda()).float()
+            e = e / e.norm(dim=-1, keepdim=True)
+            txt.append(e.mean(0) / e.mean(0).norm())
+        txt = torch.stack(txt)
+        scale = clip.logit_scale.exp().float()
+    return {"model": clip, "size": size, "mean": mean, "std": std, "txt": txt, "scale": scale}
+
+
+def classify_tracks(clf, cands, k, min_gap, blur_min):
+    """cands: tid -> {window: (quality, f, uint8 [3,S,S] crop on GPU)}. Takes up to k views per track at least
+    min_gap frames apart (best first), one batched pass, mean probability per track; P(woman)+P(girl) >= blur_min
+    -> "woman". Returns ({tid: {label, p_female, n_crops}}, number of views)."""
+    import torch
+    views, owners = [], []
+    for tid, wins in cands.items():
+        chosen = []
+        for q_, f, c in sorted(wins.values(), key=lambda t: -t[0]):
+            if all(abs(f - g) >= min_gap for g, _ in chosen):
+                chosen.append((f, c))
+                if len(chosen) == k:
+                    break
+        for f, c in chosen:
+            views.append(c)
+            owners.append(tid)
+    probs = []
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
+        for i in range(0, len(views), 128):
+            xb = torch.stack(views[i:i + 128]).float().div_(255)
+            xb = (xb - clf["mean"]) / clf["std"]
+            e = clf["model"].encode_image(xb).float()
+            e = e / e.norm(dim=-1, keepdim=True)
+            probs.append(torch.softmax(e @ clf["txt"].T * clf["scale"], -1))
+    probs = torch.cat(probs).cpu().numpy() if probs else np.zeros((0, 4))
+    acc = defaultdict(list)
+    for tid, p in zip(owners, probs):
+        acc[tid].append(p)
+    labels = {}
+    for tid, ps in acc.items():
+        p = np.mean(ps, 0)
+        pf = float(p[0] + p[2])
+        labels[tid] = {"label": "woman" if pf >= blur_min else "man", "p_female": round(pf, 3), "n_crops": len(ps)}
+    return labels, len(views)
 
 
 PALETTE = [(230, 25, 75), (60, 180, 75), (255, 225, 25), (0, 130, 200), (245, 130, 48), (145, 30, 180),
