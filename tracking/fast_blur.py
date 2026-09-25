@@ -378,22 +378,21 @@ def load_classifier(model_name, pretrained, dev):
     return {"model": clip, "size": size, "mean": mean, "std": std, "txt": txt, "scale": scale}
 
 
-def classify_tracks(clf, cands, k, min_gap, blur_min):
-    """cands: tid -> {window: (quality, f, uint8 [3,S,S] crop on GPU)}. Takes up to k views per track at least
-    min_gap frames apart (best first), one batched pass, mean probability per track; P(woman)+P(girl) >= blur_min
-    -> "woman". Returns ({tid: {label, p_female, n_crops}}, number of views)."""
+def select_views(wins, k, min_gap):
+    """Best-first up to k views of one track at least min_gap frames apart. wins: {window: (quality, f, payload)}.
+    Returns [(f, payload)]."""
+    chosen = []
+    for q_, f, c in sorted(wins.values(), key=lambda t: -t[0]):
+        if all(abs(f - g) >= min_gap for g, _ in chosen):
+            chosen.append((f, c))
+            if len(chosen) == k:
+                break
+    return chosen
+
+
+def score_views(clf, views):
+    """[uint8 [3,S,S] GPU crops] -> [N, len(CLASSES)] class probabilities, one batched pass."""
     import torch
-    views, owners = [], []
-    for tid, wins in cands.items():
-        chosen = []
-        for q_, f, c in sorted(wins.values(), key=lambda t: -t[0]):
-            if all(abs(f - g) >= min_gap for g, _ in chosen):
-                chosen.append((f, c))
-                if len(chosen) == k:
-                    break
-        for f, c in chosen:
-            views.append(c)
-            owners.append(tid)
     probs = []
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16):
         for i in range(0, len(views), 128):
@@ -402,24 +401,36 @@ def classify_tracks(clf, cands, k, min_gap, blur_min):
             e = clf["model"].encode_image(xb).float()
             e = e / e.norm(dim=-1, keepdim=True)
             probs.append(torch.softmax(e @ clf["txt"].T * clf["scale"], -1))
-    probs = torch.cat(probs).cpu().numpy() if probs else np.zeros((0, 4))
+    return torch.cat(probs).cpu().numpy() if probs else np.zeros((0, len(CLASSES)))
+
+
+def label_from_probs(ps, blur_min):
+    p = np.mean(ps, 0)
+    pf = float(p[0] + p[2])                                   # P(woman) + P(girl)
+    return {"label": "woman" if pf >= blur_min else "man", "p_female": round(pf, 3), "n_crops": len(ps)}
+
+
+def classify_tracks(clf, cands, k, min_gap, blur_min):
+    """cands: tid -> {window: (quality, f, uint8 [3,S,S] crop on GPU)}. Takes up to k views per track at least
+    min_gap frames apart (best first), one batched pass, mean probability per track; P(woman)+P(girl) >= blur_min
+    -> "woman". Returns ({tid: {label, p_female, n_crops}}, number of views)."""
+    views, owners = [], []
+    for tid, wins in cands.items():
+        for f, c in select_views(wins, k, min_gap):
+            views.append(c)
+            owners.append(tid)
+    probs = score_views(clf, views)
     acc = defaultdict(list)
     for tid, p in zip(owners, probs):
         acc[tid].append(p)
-    labels = {}
-    for tid, ps in acc.items():
-        p = np.mean(ps, 0)
-        pf = float(p[0] + p[2])
-        labels[tid] = {"label": "woman" if pf >= blur_min else "man", "p_female": round(pf, 3), "n_crops": len(ps)}
-    return labels, len(views)
-
+    return {tid: label_from_probs(ps, blur_min) for tid, ps in acc.items()}, len(views)
 
 PALETTE = [(230, 25, 75), (60, 180, 75), (255, 225, 25), (0, 130, 200), (245, 130, 48), (145, 30, 180),
            (70, 240, 240), (240, 50, 230), (210, 245, 60), (250, 190, 212), (0, 128, 128), (220, 190, 255),
            (170, 110, 40), (255, 250, 200), (128, 0, 0), (170, 255, 195), (128, 128, 0), (255, 215, 180)]   # RGB
 
 
-def render_debug(path, frames, store, labels, W, H, fps, F, torch, title="RF-DETR-Seg + McByte + CLIP"):
+def render_debug(path, frames, store, labels, W, H, fps, F, torch, title="RF-DETR-Seg + McByte + CLIP", f0=0):
     """Original frames with every tracked person's mask (colour = track), box + '#id label P(female)' (box and
     text colour = gender: magenta woman, cyan man). Nothing is blurred, so what the pipeline saw stays visible."""
     import cv2
@@ -430,7 +441,8 @@ def render_debug(path, frames, store, labels, W, H, fps, F, torch, title="RF-DET
     enc = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24",
                             "-s", f"{W}x{H}", "-r", f"{fps:.6f}", "-i", "-", "-c:v", "libx264", "-preset", "veryfast",
                             "-crf", "20", "-pix_fmt", "yuv420p", path], stdin=subprocess.PIPE)
-    for f, frame in enumerate(frames):
+    for i, frame in enumerate(frames):
+        f = f0 + i                                         # frames[i] is video frame f0 + i
         img = frame.copy()
         n_w = n_m = 0
         for tid, rec in by_frame.get(f, []):

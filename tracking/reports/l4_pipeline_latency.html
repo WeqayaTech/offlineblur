@@ -82,6 +82,12 @@ ul.plain li::marker{color:var(--accent)}
 .btrack{position:relative;height:22px}
 .bfill{position:absolute;left:0;top:3px;bottom:3px;border-radius:0 4px 4px 0;background:var(--bar)}
 .bfill.alt{background:var(--bar-alt)}
+.bfill.h100{background:var(--s1)}
+.brief{background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:18px 20px;display:flex;flex-direction:column;gap:10px}
+.brief ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:7px;max-width:78ch}
+.brief li::marker{color:var(--accent)}
+ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;max-width:80ch}
+ol.steps li::marker{color:var(--accent);font-family:var(--mono);font-size:13px}
 .bval{position:absolute;z-index:1;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap;margin-left:4px;padding:0 4px;background:var(--panel);border-radius:3px}
 .axis{display:grid;grid-template-columns:minmax(150px,260px) 1fr;gap:14px;margin-top:4px}
 .axis .ticks{position:relative;height:18px;border-top:1px solid var(--rule)}
@@ -110,41 +116,130 @@ ul.plain li::marker{color:var(--accent)}
 
 <div class="wrap">
 <header>
-  <div class="eyebrow">OfflineBlur · tracking · NVIDIA L4 24 GB</div>
-  <h1>L4 pipeline latency</h1>
+  <div class="eyebrow">OfflineBlur · tracking · NVIDIA L4 24 GB · production run on Modal H100</div>
+  <h1>Pipeline latency: L4 runs and the H100 production run</h1>
   <p class="lede">Every person-blur pipeline we have run on the L4, from the SAM 3 trackers to the new
   RF-DETR + EdgeTAM + PE-Core pipeline, measured as <b>milliseconds of compute per video frame</b> and the
-  resulting <b>rate in Hz</b>. A 25 fps video needs 25 Hz to keep up in real time; the stated goal is 100 Hz.</p>
+  resulting <b>rate in Hz</b>. A 25 fps video needs 25 Hz to keep up in real time; the stated goal is 100 Hz.
+  The latest pipeline was then run as a production exercise on Modal: one video split over 10 H100 GPUs.</p>
   <div class="meta">
     <span>clip <b>ali-dawah-street-interview-source.mp4</b></span>
     <span><b>300</b> frames · <b>1280×720</b> · <b>25 fps</b> · 12 s · ~60 people</span>
     <span>runs 2026-09-19 → 2026-09-24</span>
+    <span>production run <b>dm_dutchman_converts.mp4</b> · 60 s · 1,803 frames · 1280×720 · 30 fps</span>
   </div>
 </header>
 
+<section class="brief" id="summary">
+  <h2>In plain terms</h2>
+  <ul>
+    <li><b>What it does:</b> finds every person in a street video, follows each one through the video, decides once per
+      person whether they are a woman, and blurs the women.</li>
+    <li><b>Quality:</b> the newest version (EdgeTAM tracker) keeps people's outlines and identities clearly better than
+      earlier versions, judged by eye. Not yet scored against hand-checked labels.</li>
+    <li><b>Speed:</b> on 10 cloud GPUs working in parallel, a <b>1-minute video is done in about 23 seconds</b>
+      (80 frames per second). One GPU takes about 90 seconds.</li>
+    <li><b>Cost:</b> about <b>$0.29 per minute of video</b> on 10 GPUs, or $0.11 on one slower GPU. Today's full
+      experiment cost $27, covered by Modal credits.</li>
+    <li><b>Goal gap:</b> the target is 100 frames per second; we reached 80. The limit is our cloud account's cap of
+      10 GPUs at once. Raising that cap or one more software speed-up closes the gap.</li>
+  </ul>
+</section>
+
 <section>
   <div class="verdict">
-    <div class="v"><div class="num">20.1 <small>Hz</small></div>
-      <p><b>Fastest on the L4:</b> RF-DETR-Seg 2XL + McByte + CLIP, in memory (run 10). 50 ms per frame, still below real time.</p></div>
+    <div class="v"><div class="num">79.4 <small>Hz</small></div>
+      <p><b>Production run, 10 × H100 on Modal:</b> a 60 s video blurred in <b>22.7 s</b> with RF-DETR + EdgeTAM + PE-Core (repeat: 82.4 Hz).</p></div>
+    <div class="v"><div class="num">20.3 <small>Hz</small></div>
+      <p><b>Same pipeline, one H100:</b> 89 s for the same video, after batching all people into one EdgeTAM step per frame.</p></div>
     <div class="v"><div class="num">3.6 <small>Hz</small></div>
-      <p><b>Latest, EdgeTAM + PE-Core (run 12):</b> judged most accurate by eye, but EdgeTAM uses <b>218 of its 278 ms</b> per frame.</p></div>
-    <div class="v"><div class="num">9.3 <small>ms / person</small></div>
-      <p><b>EdgeTAM's real cost:</b> one memory step per live person per frame. Batching people does not reduce it on the L4, because the GPU is already fully busy.</p></div>
-    <div class="v"><div class="num">112× <small>slowest → fastest</small></div>
-      <p><b>Range:</b> SAM 3 with gender prompts ran at 0.18 Hz (5.6 s per frame); the in-memory RF-DETR pipeline runs at 20.1 Hz.</p></div>
+      <p><b>Same pipeline on the L4 (run 12):</b> one person per EdgeTAM call. The fastest L4 pipeline overall is McByte + CLIP at 20.1 Hz.</p></div>
+    <div class="v"><div class="num">$0.29 <small>per video minute</small></div>
+      <p><b>Cost on 10 warm H100s</b> (Modal list price). The final run cost <b>$4.49</b> as run, including GPU start-up and the one-GPU comparison.</p></div>
+  </div>
+</section>
+
+<section id="production">
+  <div class="sec-head">
+    <h2>Production run: EdgeTAM pipeline on Modal H100s</h2>
+    <p>The video is split in time: every chunk runs on its own H100 with the models already loaded, and a coordinator
+    joins the results. Measured on a continuous 60 s stretch of <code>dm_dutchman_converts.mp4</code> (from 0:30,
+    1,803 frames, 1280×720, 30 fps). Times exclude GPU start-up and model load (25–32 s), which a running service pays once.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th></th><th class="n">Wall time, 60 s video</th><th class="n">Rate</th><th>Where the time goes</th><th class="n">People / women</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td><span class="name">10 × H100, split</span><span class="sub">10 chunks of ~180 frames + 32-frame warm-up</span></td>
+          <td class="n"><b>22.7 s</b></td><td class="n"><b>79.4 Hz</b></td>
+          <td>tracking 16.1 s · gender vote 2.0 s · blur 3.3 s · join 1.4 s</td><td class="n">123 / 50</td></tr>
+        <tr><td><span class="name">10 × H100, split (repeat)</span><span class="sub">same configuration, earlier run</span></td>
+          <td class="n">21.9 s</td><td class="n">82.4 Hz</td>
+          <td>tracking 15.1 s · gender vote 0.9 s · blur 4.4 s · join 1.5 s</td><td class="n">123 / 50</td></tr>
+        <tr><td><span class="name">1 × H100, whole video</span><span class="sub">one container, no split</span></td>
+          <td class="n">89.0 s</td><td class="n">20.3 Hz</td><td>tracking 81.1 s, then vote and blur</td><td class="n">111 / 42</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cols">
+    <div class="panel">
+      <h3 style="margin-bottom:10px">Pipeline, per chunk (one H100 each)</h3>
+      <ol class="steps">
+        <li>Decode the chunk's frames plus 32 frames before it, so tracking is already running when the chunk starts.</li>
+        <li>RF-DETR-Seg 2XL: person boxes and masks (fp16, batch 8, score ≥ 0.15).</li>
+        <li>EdgeTAM: image encoder once per 8 frames, then one batched memory step for all live people per frame.</li>
+        <li>Match detections to tracked people (mask IoU ≥ 0.3); start new people from detections ≥ 0.5; drop duplicates (≥ 0.7); end tracks unconfirmed for 4 s.</li>
+        <li>PE-Core-L/14-336 scores each person's views.</li>
+        <li>Coordinator: link people across chunk boundaries (mask IoU ≥ 0.5 over the warm-up frames), pool each person's views, vote woman / man (10 views, P(woman)+P(girl) ≥ 0.25).</li>
+        <li>Each GPU pixelates its women's masks and encodes its frames; the segments are joined without re-encoding.</li>
+      </ol>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Getting one GPU faster</th><th class="n">Tracking rate</th></tr></thead>
+        <tbody>
+          <tr><td>L4, one person per EdgeTAM call (run 12)</td><td class="n">3.6 Hz</td></tr>
+          <tr><td>H100 / B200, same code</td><td class="n">3.5 / 3.8 Hz</td></tr>
+          <tr><td>H100 + 8 CPU cores, image encoder once per 8 frames</td><td class="n">4.8 Hz</td></tr>
+          <tr class="pick"><td>H100 + all people in one batched EdgeTAM step</td><td class="n"><b>16.9 Hz</b></td></tr>
+          <tr><td>H100, per chunk in the production run</td><td class="n">14.7–23.4 Hz</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <ul class="plain">
+    <li><b>Why the big GPUs first ran no faster than the L4:</b> the detector got 5–7× faster, but EdgeTAM's loop issued
+      thousands of tiny GPU calls, one person at a time, so the CPU was the bottleneck. Batching everyone into one step per
+      frame made each H100 3.5× faster; the blurred pixels match the one-at-a-time version at 99.7% IoU (12 s trial clip).</li>
+    <li><b>Split vs one GPU on this video:</b> 75.0% of the blurred pixels overlap (IoU).</li>
+    <li><b>Limit hit:</b> the Modal workspace allowed about 10 GPUs at once, so 10 chunks is the current maximum.</li>
+  </ul>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Cost (Modal list price: H100 $3.95/h, CPU $0.0473/core-h, memory $0.008/GiB-h)</th><th class="n">Cost</th></tr></thead>
+      <tbody>
+        <tr class="pick"><td>1 minute of 720p video on 10 warm H100s (22.7 s × 10 GPUs, 8 cores + 32 GiB each)</td><td class="n"><b>≈ $0.29</b></td></tr>
+        <tr><td>1 minute of 720p video on 1 warm H100 (89 s)</td><td class="n">≈ $0.11</td></tr>
+        <tr><td>Starting 10 H100s from cold (start-up + model load + warm-up, ~90 s each)</td><td class="n">≈ $1.15</td></tr>
+        <tr><td>Keeping 10 H100s warm and idle (with 8 cores + 32 GiB each)</td><td class="n">≈ $46 per hour</td></tr>
+        <tr><td>The final production run as run (10 GPUs from cold, overlay videos, one-GPU comparison)</td><td class="n">$4.49</td></tr>
+        <tr><td>Everything on Modal on 2026-09-24 (image builds, tests, 12 runs)</td><td class="n">$27.28, covered by credits ($0.00 billed)</td></tr>
+      </tbody>
+    </table>
   </div>
 </section>
 
 <section>
   <div class="sec-head">
     <h2>Rate per pipeline</h2>
-    <p>Frames processed per second on the L4, log scale. Dashed lines: real time for this 25 fps clip, and the 100 Hz goal.
-    Hover a bar for ms per frame.</p>
+    <p>Frames processed per second, log scale: the L4 runs on the 12 s trial clip, and the H100 production run on the
+    60 s video. Dashed lines: 25 Hz real time and the 100 Hz goal. Hover a bar for ms per frame.</p>
   </div>
   <div class="panel">
     <div class="legend" style="margin-bottom:12px">
       <span><i style="background:var(--bar)"></i>end to end (decode → blur → encode)</span>
       <span><i style="background:var(--bar-alt)"></i>model compute only (scripts, SAM runs)</span>
+      <span><i style="background:var(--s1)"></i>H100 on Modal, end to end</span>
       <span><i class="dash"></i>25 Hz real time</span>
       <span><i class="dash t"></i>100 Hz goal</span>
     </div>
@@ -159,8 +254,9 @@ ul.plain li::marker{color:var(--accent)}
 <section>
   <div class="sec-head">
     <h2>Where each millisecond goes</h2>
-    <p>Per-frame compute of the RF-DETR pipelines, split by stage. The detector is the same in all of them; what changes
-    is the tracker and the classifier. Decoding runs in its own thread and overlaps, so it is not counted.</p>
+    <p>Per-frame compute of the RF-DETR pipelines, split by stage (L4, and one H100 chunk of the production run). The
+    detector is the same in all of them; what changes is the tracker and the classifier. Decoding runs in its own thread
+    and overlaps, so it is not counted.</p>
   </div>
   <div class="panel">
     <div class="legend" style="margin-bottom:12px" id="stage-legend"></div>
@@ -225,8 +321,8 @@ ul.plain li::marker{color:var(--accent)}
     </div>
   </div>
   <ul class="plain">
-    <li><b>Batching people does not help on the L4:</b> 16 people cost the same batched or one by one. The step is GPU
-      compute (attention over a 64×64 feature map per person), not Python or kernel-launch overhead.</li>
+    <li><b>Batching people does not help on the L4:</b> 16 people cost the same batched or one by one, because the L4 is
+      already fully busy. <b>On the H100 it does:</b> one batched step per frame took a single H100 from 4.8 to 16.9 Hz.</li>
     <li><b>EdgeTAM memory is bounded</b> (entries flat at ~450–480; 1 prompt frame + last 17 frames per live person).
       The pipeline around it grows: every decoded frame is kept for the blur pass (~2.7 MB/frame of host RAM) and every
       mask stays on the GPU until the video ends (~0.5 MB/frame), because the blur waits for the per-person
@@ -239,18 +335,19 @@ ul.plain li::marker{color:var(--accent)}
 <section>
   <div class="sec-head">
     <h2>What 100 Hz means</h2>
-    <p>100 Hz leaves <b>10 ms per frame</b> for everything. On the L4 today:</p>
+    <p>100 Hz leaves <b>10 ms per frame</b> for everything.</p>
   </div>
   <ul class="plain">
-    <li>RF-DETR-Seg 2XL alone takes <b>25 ms</b> per frame; the PE-Core classifier <b>16–21 ms</b>; EdgeTAM <b>218 ms</b>.</li>
-    <li>The McByte pipeline reached <b>93 Hz</b> (48 s video) on an RTX PRO 6000, where RF-DETR ran about 5× faster than on the L4.</li>
-    <li>For the EdgeTAM pipeline the per-person memory step dominates, so its cost scales with how many people are
-      tracked and how often each is stepped. Making it reach 100 Hz is the next stage.</li>
+    <li><b>One L4:</b> RF-DETR-Seg 2XL alone takes 25 ms per frame, so the L4 tops out near 40 Hz before any tracking.</li>
+    <li><b>One H100, EdgeTAM pipeline:</b> about 63 ms per frame (EdgeTAM 46, RF-DETR 5.5, blur 5.3, other ~6): 16–20 Hz.</li>
+    <li><b>Ten H100s, split in time:</b> 79.4–82.4 Hz measured. More GPUs than the workspace's limit of about 10, or a faster
+      per-GPU EdgeTAM step, is what moves this past 100 Hz.</li>
   </ul>
 </section>
 
-<footer class="note">Sources: per-run metadata of <code>fast_blur.py</code> / <code>fast_blur_edgetam.py</code> and the
-PIPELINE.md briefs in <code>tracking/results/by_pipeline/</code>; EdgeTAM microbenchmark on the same pod. Earlier
+<footer class="note">Sources: per-run metadata of <code>fast_blur.py</code> / <code>fast_blur_edgetam.py</code> /
+<code>modal_edgetam.py</code>, the PIPELINE.md briefs in <code>tracking/results/by_pipeline/</code> (run 13 = the production
+run), the EdgeTAM microbenchmark, and Modal's billing report for 2026-09-24. Earlier
 cross-GPU report: <a href="https://claude.ai/artifact/LCjvGwqZ9ZFTy333GXRGkD" style="color:var(--accent)">pipeline benchmarks</a>.</footer>
 </div>
 <div id="tip" hidden></div>
@@ -269,7 +366,9 @@ const RUNS = [
   {id:"10", name:"RF-DETR + McByte + CLIP", sub:"buffered IoU 0.5 / 2nd round 0.3", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"CLIP ViT-L/14-336", ms:49.8, hz:20.1, gpu:4.7, tracks:48, acc:null},
   {id:"11", name:"RF-DETR + McByte + CLIP", sub:"latest McByte settings", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"CLIP ViT-L/14-336", ms:53.2, hz:18.8, gpu:4.7, tracks:48, acc:null},
   {id:"11", name:"RF-DETR + McByte + PE-Core", sub:"classifier swapped", det:"RF-DETR-Seg 2XL", trk:"McByte, BIoU, lost 4 s", g:"PE-Core-L/14-336", ms:57.5, hz:17.4, gpu:6.05, tracks:48, acc:null},
-  {id:"12", name:"RF-DETR + EdgeTAM + PE-Core", sub:"latest · tracker swapped", det:"RF-DETR-Seg 2XL", trk:"EdgeTAM (per-person memory)", g:"PE-Core-L/14-336", ms:277.8, hz:3.6, gpu:6.58, tracks:54, acc:"eye", pick:true},
+  {id:"12", name:"RF-DETR + EdgeTAM + PE-Core", sub:"latest · tracker swapped", det:"RF-DETR-Seg 2XL", trk:"EdgeTAM (per-person memory)", g:"PE-Core-L/14-336", ms:277.8, hz:3.6, gpu:6.58, tracks:54, acc:"eye"},
+  {id:"13", name:"EdgeTAM + PE-Core, 1 × H100", sub:"Modal · 60 s video · people batched", det:"RF-DETR-Seg 2XL", trk:"EdgeTAM, batched people", g:"PE-Core-L/14-336", ms:49.3, hz:20.3, gpu:null, tracks:111, acc:null, kind:"h100", group:"Production run on Modal H100 (60 s real video)"},
+  {id:"13", name:"EdgeTAM + PE-Core, 10 × H100", sub:"Modal · 60 s video · split in time", det:"RF-DETR-Seg 2XL", trk:"EdgeTAM, batched people", g:"PE-Core-L/14-336", ms:12.6, hz:79.4, gpu:null, tracks:123, acc:null, kind:"h100", pick:true},
 ];
 const STAGES = [
   {k:"det", name:"Detector (RF-DETR)", c:"var(--s1)"},
@@ -284,8 +383,9 @@ const BREAK = [
   {id:"10", name:"McByte + CLIP", sub:"buffered IoU", det:25.06, trk:1.47, cls:15.52, crop:1.89, enc:4.54, oth:1.27, hz:20.1},
   {id:"11", name:"McByte + CLIP", sub:"latest settings", det:25.06, trk:1.35, cls:16.04, crop:1.66, enc:7.0, oth:2.08, hz:18.8},
   {id:"11", name:"McByte + PE-Core", sub:"classifier swapped", det:25.19, trk:1.39, cls:20.96, crop:1.74, enc:6.25, oth:1.94, hz:17.4},
-  {id:"12", name:"EdgeTAM + PE-Core", sub:"12 s clip", det:26.17, trk:218.5, cls:21.44, crop:1.89, enc:8.18, oth:1.6, hz:3.6, pick:true},
+  {id:"12", name:"EdgeTAM + PE-Core", sub:"12 s clip", det:26.17, trk:218.5, cls:21.44, crop:1.89, enc:8.18, oth:1.6, hz:3.6},
   {id:"12", name:"EdgeTAM + PE-Core", sub:"48 s video", det:26.83, trk:256.15, cls:15.66, crop:1.58, enc:8.62, oth:3.66, hz:3.2},
+  {id:"13", name:"EdgeTAM + PE-Core, H100", sub:"per chunk, people batched", det:5.53, trk:46.03, cls:2.35, crop:1.21, enc:5.31, oth:2.29, hz:15.9, pick:true},
 ];
 
 const tip = document.getElementById("tip");
@@ -296,6 +396,8 @@ function hover(el, html){
   el.addEventListener("mouseleave", () => { tip.hidden = true; });
 }
 const fmt = (v, d=1) => v.toFixed(d);
+// value label after the bar end, or just inside it when the bar is long (keeps the label inside the chart)
+const vpos = x => x > 70 ? `right:${100 - x}%;margin-right:4px` : `left:${x}%`;
 
 // ---- rate chart (log scale 0.1 .. 100 Hz)
 const LMIN = Math.log10(0.1), LMAX = Math.log10(150);
@@ -307,8 +409,8 @@ for (const r of sorted){
   row.innerHTML = `<div class="blabel"><span class="name">${r.id} · ${r.name}</span><span class="sub">${r.sub}</span></div>
     <div class="btrack"><div class="gridlayer">${[0.1,0.3,1,3,10,30,100].map(t=>`<div class="gl" style="left:${lx(t)}%"></div>`).join("")}
     <div class="ref" style="left:${lx(25)}%"></div><div class="ref target" style="left:${lx(100)}%"></div></div>
-    <div class="bfill ${r.kind==="alt"?"alt":""}" style="width:${lx(r.hz)}%"></div>
-    <div class="bval" style="left:${lx(r.hz)}%">${r.hz} Hz</div></div>`;
+    <div class="bfill ${r.kind || ""}" style="width:${lx(r.hz)}%"></div>
+    <div class="bval" style="${vpos(lx(r.hz))}">${r.hz} Hz</div></div>`;
   rate.appendChild(row);
   hover(row.querySelector(".bfill"), `${r.id} ${r.name}<br>${r.hz} Hz · ${fmt(r.ms, r.ms < 100 ? 1 : 0)} ms/frame`);
 }
@@ -327,7 +429,7 @@ for (const b of BREAK){
     <div class="btrack"><div class="gridlayer">${[0,50,100,150,200,250,300].map(t=>`<div class="gl" style="left:${sx(t)}%"></div>`).join("")}
     <div class="ref target" style="left:${sx(10)}%"></div></div>
     <div class="stack" style="width:${sx(total)}%">${STAGES.filter(s=>b[s.k]>0).map(s=>`<div class="seg" data-k="${s.k}" style="flex:${b[s.k]} 0 0;background:${s.c}"></div>`).join("")}</div>
-    <div class="bval" style="left:${sx(total)}%">${fmt(total)} ms · ${b.hz} Hz</div></div>`;
+    <div class="bval" style="${vpos(sx(total))}">${fmt(total)} ms · ${b.hz} Hz</div></div>`;
   st.appendChild(row);
   row.querySelectorAll(".seg").forEach(seg => { const s = STAGES.find(x => x.k === seg.dataset.k);
     hover(seg, `${b.id} ${b.name}<br>${s.name}: ${fmt(b[s.k])} ms (${Math.round(100*b[s.k]/total)}%)`); });
@@ -352,7 +454,7 @@ for (const r of RUNS){
   else if (r.g === "—") acc = `<span class="note">no gender step</span>`;
   tr.innerHTML = `<td><span class="name">${r.id} · ${r.name}</span><span class="sub">${r.sub}</span></td>
     <td>${r.det}</td><td>${r.trk}</td><td>${r.g}</td><td class="n">${fmt(r.ms, r.ms < 100 ? 1 : 0)}</td>
-    <td class="n"><b>${r.hz}</b></td><td class="n">${r.gpu} GB</td><td class="n">${r.tracks ?? "—"}</td><td>${acc}</td>`;
+    <td class="n"><b>${r.hz}</b></td><td class="n">${r.gpu ? r.gpu + " GB" : "—"}</td><td class="n">${r.tracks ?? "—"}</td><td>${acc}</td>`;
   all.appendChild(tr);
 }
 </script>
